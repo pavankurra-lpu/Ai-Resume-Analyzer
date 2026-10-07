@@ -9,7 +9,8 @@ import {
   Sparkles,
   AlertCircle,
   ExternalLink,
-  GripVertical
+  GripVertical,
+  X
 } from "lucide-react";
 import { StructuredResume } from "@/lib/resumeTypes";
 import { CheckpointResult, evaluateBulletPoint } from "@/lib/scoring";
@@ -21,9 +22,26 @@ interface WordEditorProps {
   fontSize: "10pt" | "10.5pt" | "11pt";
   zoom: number;
   checkpoints: CheckpointResult[];
-  activeTargetField?: string;
+  focusRequest?: { field: string; checkpointId?: string; nonce: number } | null;
   onUpdate: (updated: StructuredResume) => void;
   onOpenIssueModal?: (checkpoint: CheckpointResult, targetField: string) => void;
+}
+
+function resolveFieldElement(path: string): HTMLElement | null {
+  if (!path) return null;
+  const parts = path.split(".");
+  for (let i = parts.length; i >= 1; i--) {
+    const id = `field-${parts.slice(0, i).join("-")}`;
+    const el = document.getElementById(id);
+    if (el) return el;
+  }
+  if (parts[0] === "contact") {
+    const fallback =
+      document.getElementById("field-contact-email") ||
+      document.getElementById("field-contact-fullName");
+    if (fallback) return fallback;
+  }
+  return null;
 }
 
 export default function WordEditor({
@@ -32,39 +50,107 @@ export default function WordEditor({
   fontSize,
   zoom,
   checkpoints,
-  activeTargetField,
+  focusRequest,
   onUpdate,
 }: WordEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const checkpointsRef = useRef(checkpoints);
+  checkpointsRef.current = checkpoints;
+  const resumeRef = useRef(resume);
+  resumeRef.current = resume;
+
   const [activePopover, setActivePopover] = useState<{
     checkpoint: CheckpointResult;
     path: string;
     text: string;
   } | null>(null);
 
-  // Scroll to activeTargetField when deep link or checklist item is selected
-  useEffect(() => {
-    if (activeTargetField) {
-      const el = document.getElementById(`field-${activeTargetField.replace(/\./g, "-")}`);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-        el.classList.add("ring-4", "ring-lt-blue", "animate-pulse");
-        setTimeout(() => {
-          el.classList.remove("ring-4", "ring-lt-blue", "animate-pulse");
-        }, 2500);
+  const [hintCard, setHintCard] = useState<{
+    checkpoint: CheckpointResult;
+    path: string;
+  } | null>(null);
 
-        // Auto-open popover if checkpoint matches
-        const matchingCp = checkpoints.find((c) => c.targetField === activeTargetField && c.status !== "pass");
-        if (matchingCp) {
-          setActivePopover({
-            checkpoint: matchingCp,
-            path: activeTargetField,
-            text: "",
-          });
-        }
+  // Auto-dismiss hint card after ~8s
+  useEffect(() => {
+    if (!hintCard) return;
+    const timer = setTimeout(() => {
+      setHintCard(null);
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [hintCard]);
+
+  // Handle focusRequest: depends ONLY on focusRequest
+  useEffect(() => {
+    if (!focusRequest || !focusRequest.field) return;
+
+    const targetPath = focusRequest.field;
+    const el = resolveFieldElement(targetPath);
+
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("ring-4", "ring-lt-blue", "animate-pulse");
+      setTimeout(() => {
+        el.classList.remove("ring-4", "ring-lt-blue", "animate-pulse");
+      }, 2500);
+
+      const input =
+        el.tagName === "INPUT" || el.tagName === "TEXTAREA"
+          ? (el as HTMLElement)
+          : el.querySelector<HTMLInputElement | HTMLTextAreaElement>("input, textarea");
+      if (input && "focus" in input) {
+        input.focus();
       }
     }
-  }, [activeTargetField, checkpoints]);
+
+    const currentCheckpoints = checkpointsRef.current;
+    const matchingCp = focusRequest.checkpointId
+      ? currentCheckpoints.find((c) => c.id === focusRequest.checkpointId)
+      : currentCheckpoints.find(
+          (c) => c.targetField === targetPath && c.status !== "pass"
+        );
+
+    // Passing checkpoints just scroll, no popover or hint
+    if (!matchingCp || matchingCp.status === "pass") {
+      setActivePopover(null);
+      setHintCard(null);
+      return;
+    }
+
+    // Check if target is a text field: summary or bullets
+    const isSummary = targetPath === "summary";
+    const projBulletMatch = targetPath.match(/^projects\.(\d+)\.bullets\.(\d+)$/);
+    const expBulletMatch = targetPath.match(/^experience\.(\d+)\.bullets\.(\d+)$/);
+    const isBullet = Boolean(projBulletMatch || expBulletMatch);
+
+    if (isSummary || isBullet) {
+      let realText = "";
+      const curResume = resumeRef.current;
+      if (isSummary) {
+        realText = curResume.summary || "";
+      } else if (projBulletMatch) {
+        const pIdx = parseInt(projBulletMatch[1], 10);
+        const bIdx = parseInt(projBulletMatch[2], 10);
+        realText = curResume.projects?.[pIdx]?.bullets?.[bIdx] || "";
+      } else if (expBulletMatch) {
+        const eIdx = parseInt(expBulletMatch[1], 10);
+        const bIdx = parseInt(expBulletMatch[2], 10);
+        realText = curResume.experience?.[eIdx]?.bullets?.[bIdx] || "";
+      }
+
+      setActivePopover({
+        checkpoint: matchingCp,
+        path: targetPath,
+        text: realText,
+      });
+      setHintCard(null);
+    } else {
+      setActivePopover(null);
+      setHintCard({
+        checkpoint: matchingCp,
+        path: targetPath,
+      });
+    }
+  }, [focusRequest]);
 
   // Styling tokens based on template
   const isModern = templateId === "modern";
@@ -114,9 +200,10 @@ export default function WordEditor({
   };
 
   const removeEducation = (idx: number) => {
-    const list = [...(resume.education || [])];
-    list.splice(idx, 1);
-    onUpdate({ ...resume, education: list });
+    onUpdate({
+      ...resume,
+      education: (resume.education || []).filter((_, i) => i !== idx),
+    });
   };
 
   // Skill Helpers
@@ -135,9 +222,10 @@ export default function WordEditor({
   };
 
   const removeSkillGroup = (idx: number) => {
-    const list = [...(resume.skills || [])];
-    list.splice(idx, 1);
-    onUpdate({ ...resume, skills: list });
+    onUpdate({
+      ...resume,
+      skills: (resume.skills || []).filter((_, i) => i !== idx),
+    });
   };
 
   // Project Helpers
@@ -161,27 +249,55 @@ export default function WordEditor({
   };
 
   const removeProject = (idx: number) => {
-    const list = [...(resume.projects || [])];
-    list.splice(idx, 1);
-    onUpdate({ ...resume, projects: list });
+    onUpdate({
+      ...resume,
+      projects: (resume.projects || []).filter((_, i) => i !== idx),
+    });
   };
 
   const addProjectBullet = (pIdx: number) => {
-    const list = [...(resume.projects || [])];
-    list[pIdx].bullets.push("Engineered high-performance module, optimizing latency by [X%].");
-    onUpdate({ ...resume, projects: list });
+    onUpdate({
+      ...resume,
+      projects: (resume.projects || []).map((proj, i) =>
+        i === pIdx
+          ? {
+              ...proj,
+              bullets: [
+                ...(proj.bullets || []),
+                "Engineered high-performance module, optimizing latency by [X%].",
+              ],
+            }
+          : proj
+      ),
+    });
   };
 
   const updateProjectBullet = (pIdx: number, bIdx: number, val: string) => {
-    const list = [...(resume.projects || [])];
-    list[pIdx].bullets[bIdx] = val;
-    onUpdate({ ...resume, projects: list });
+    onUpdate({
+      ...resume,
+      projects: (resume.projects || []).map((proj, i) =>
+        i === pIdx
+          ? {
+              ...proj,
+              bullets: (proj.bullets || []).map((b, j) => (j === bIdx ? val : b)),
+            }
+          : proj
+      ),
+    });
   };
 
   const removeProjectBullet = (pIdx: number, bIdx: number) => {
-    const list = [...(resume.projects || [])];
-    list[pIdx].bullets.splice(bIdx, 1);
-    onUpdate({ ...resume, projects: list });
+    onUpdate({
+      ...resume,
+      projects: (resume.projects || []).map((proj, i) =>
+        i === pIdx
+          ? {
+              ...proj,
+              bullets: (proj.bullets || []).filter((_, j) => j !== bIdx),
+            }
+          : proj
+      ),
+    });
   };
 
   // Experience Helpers
@@ -208,27 +324,55 @@ export default function WordEditor({
   };
 
   const removeExperience = (idx: number) => {
-    const list = [...(resume.experience || [])];
-    list.splice(idx, 1);
-    onUpdate({ ...resume, experience: list });
+    onUpdate({
+      ...resume,
+      experience: (resume.experience || []).filter((_, i) => i !== idx),
+    });
   };
 
   const addExperienceBullet = (eIdx: number) => {
-    const list = [...(resume.experience || [])];
-    list[eIdx].bullets.push("Engineered automated data pipelines, decreasing runtime by [X%].");
-    onUpdate({ ...resume, experience: list });
+    onUpdate({
+      ...resume,
+      experience: (resume.experience || []).map((exp, i) =>
+        i === eIdx
+          ? {
+              ...exp,
+              bullets: [
+                ...(exp.bullets || []),
+                "Engineered automated data pipelines, decreasing runtime by [X%].",
+              ],
+            }
+          : exp
+      ),
+    });
   };
 
   const updateExperienceBullet = (eIdx: number, bIdx: number, val: string) => {
-    const list = [...(resume.experience || [])];
-    list[eIdx].bullets[bIdx] = val;
-    onUpdate({ ...resume, experience: list });
+    onUpdate({
+      ...resume,
+      experience: (resume.experience || []).map((exp, i) =>
+        i === eIdx
+          ? {
+              ...exp,
+              bullets: (exp.bullets || []).map((b, j) => (j === bIdx ? val : b)),
+            }
+          : exp
+      ),
+    });
   };
 
   const removeExperienceBullet = (eIdx: number, bIdx: number) => {
-    const list = [...(resume.experience || [])];
-    list[eIdx].bullets.splice(bIdx, 1);
-    onUpdate({ ...resume, experience: list });
+    onUpdate({
+      ...resume,
+      experience: (resume.experience || []).map((exp, i) =>
+        i === eIdx
+          ? {
+              ...exp,
+              bullets: (exp.bullets || []).filter((_, j) => j !== bIdx),
+            }
+          : exp
+      ),
+    });
   };
 
   // Helper to render spellcheck-style underlined bullet
@@ -308,130 +452,139 @@ export default function WordEditor({
     );
   };
 
+  const handleApplyPopoverFix = (path: string, newText: string) => {
+    if (path === "summary") {
+      updateSummary(newText);
+      return;
+    }
+    const projBulletMatch = path.match(/^projects\.(\d+)\.bullets\.(\d+)$/);
+    if (projBulletMatch) {
+      const pIdx = parseInt(projBulletMatch[1], 10);
+      const bIdx = parseInt(projBulletMatch[2], 10);
+      updateProjectBullet(pIdx, bIdx, newText);
+      return;
+    }
+    const expBulletMatch = path.match(/^experience\.(\d+)\.bullets\.(\d+)$/);
+    if (expBulletMatch) {
+      const eIdx = parseInt(expBulletMatch[1], 10);
+      const bIdx = parseInt(expBulletMatch[2], 10);
+      updateExperienceBullet(eIdx, bIdx, newText);
+      return;
+    }
+  };
+
   return (
-    <div
-      ref={containerRef}
-      className="w-full flex justify-center py-6 px-2 sm:px-4"
-      style={{
-        transform: `scale(${zoom / 100})`,
-        transformOrigin: "top center",
-      }}
-    >
-      {/* Popover overlay if open */}
-      {activePopover && (
-        <IssuePopover
-          checkpoint={activePopover.checkpoint}
-          currentText={activePopover.text}
-          onApply={(newText) => {
-            const parts = activePopover.path.split(".");
-            if (parts[0] === "projects" && parts[2] === "bullets") {
-              updateProjectBullet(parseInt(parts[1]), parseInt(parts[3]), newText);
-            } else if (parts[0] === "experience" && parts[2] === "bullets") {
-              updateExperienceBullet(parseInt(parts[1]), parseInt(parts[3]), newText);
-            } else if (parts[0] === "summary") {
-              updateSummary(newText);
-            }
-            setActivePopover(null);
-          }}
-          onClose={() => setActivePopover(null)}
-          onFocusField={() => {
-            const el = document.getElementById(`field-${activePopover.path.replace(/\./g, "-")}`);
-            const input = el?.querySelector("input, textarea");
-            if (input instanceof HTMLElement) input.focus();
-          }}
-        />
-      )}
-
-      {/* A4 White Page Document Container (WYSIWYG) */}
-      <article
-        className="w-full max-w-[800px] min-h-[1050px] bg-white rounded-xs shadow-xl border border-slate-200/90 p-8 sm:p-14 text-slate-800 transition-all font-sans relative"
-        style={{ boxSizing: "border-box" }}
+    <>
+      <div
+        ref={containerRef}
+        className="w-full flex justify-center py-6 px-2 sm:px-4"
+        style={{
+          transform: `scale(${zoom / 100})`,
+          transformOrigin: "top center",
+        }}
       >
-        {/* HEADER SECTION (Candidate Name, Target Role, Contact Links) */}
-        <header className="border-b border-slate-200/80 pb-5 mb-5 text-center space-y-2">
-          {/* Candidate Full Name */}
-          <div id="field-contact-fullName" className="relative group/name inline-block w-full">
-            <input
-              type="text"
-              value={resume.contact?.fullName || ""}
-              onChange={(e) => updateContact("fullName", e.target.value)}
-              placeholder="YOUR FULL NAME"
-              className={`w-full text-center font-heading font-extrabold text-2xl sm:text-3xl tracking-tight uppercase bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none transition-colors ${primaryColor}`}
-            />
-          </div>
-
-          {/* Headline / Target Role */}
-          <div id="field-headline" className="relative inline-block w-full">
-            <input
-              type="text"
-              value={resume.headline || ""}
-              onChange={(e) => updateHeadline(e.target.value)}
-              placeholder="Target Role (e.g. Software Engineer / Frontend Developer)"
-              className="w-full text-center font-heading font-bold text-sm sm:text-base text-slate-600 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none transition-colors"
-            />
-          </div>
-
-          {/* Contact Bar Inline Inputs */}
-          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-slate-600 pt-1">
-            <div id="field-contact-email" className="flex items-center gap-1">
-              <input
-                type="email"
-                value={resume.contact?.email || ""}
-                onChange={(e) => updateContact("email", e.target.value)}
-                placeholder="name@email.com"
-                className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none text-center font-medium w-36 sm:w-44 text-xs"
-              />
-            </div>
-
-            <span className="text-slate-300 select-none">|</span>
-
-            <div id="field-contact-phone" className="flex items-center gap-1">
-              <input
-                type="tel"
-                value={resume.contact?.phone || ""}
-                onChange={(e) => updateContact("phone", e.target.value)}
-                placeholder="+91 9876543210"
-                className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none text-center font-medium w-28 text-xs"
-              />
-            </div>
-
-            <span className="text-slate-300 select-none">|</span>
-
-            <div id="field-contact-city" className="flex items-center gap-1">
+        {/* A4 White Page Document Container (WYSIWYG) */}
+        <article
+          className="w-full max-w-[800px] min-h-[1050px] bg-white rounded-xs shadow-xl border border-slate-200/90 p-8 sm:p-14 text-slate-800 transition-all font-sans relative"
+          style={{ boxSizing: "border-box" }}
+        >
+          {/* HEADER SECTION (Candidate Name, Target Role, Contact Links) */}
+          <header className="border-b border-slate-200/80 pb-5 mb-5 text-center space-y-2">
+            {/* Candidate Full Name */}
+            <div id="field-contact-fullName" className="relative group/name inline-block w-full">
               <input
                 type="text"
-                value={resume.contact?.city || ""}
-                onChange={(e) => updateContact("city", e.target.value)}
-                placeholder="City, India"
-                className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none text-center font-medium w-28 text-xs"
+                value={resume.contact?.fullName || ""}
+                onChange={(e) => updateContact("fullName", e.target.value)}
+                placeholder="YOUR FULL NAME"
+                className={`w-full text-center font-heading font-extrabold text-2xl sm:text-3xl tracking-tight uppercase bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none transition-colors ${primaryColor}`}
               />
             </div>
 
-            <span className="text-slate-300 select-none">|</span>
-
-            <div id="field-contact-linkedin" className="flex items-center gap-1">
+            {/* Headline / Target Role */}
+            <div id="field-headline" className="relative inline-block w-full">
               <input
                 type="text"
-                value={resume.contact?.linkedin || ""}
-                onChange={(e) => updateContact("linkedin", e.target.value)}
-                placeholder="linkedin.com/in/you"
-                className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none text-center font-medium w-32 sm:w-40 text-xs"
+                value={resume.headline || ""}
+                onChange={(e) => updateHeadline(e.target.value)}
+                placeholder="Target Role (e.g. Software Engineer / Frontend Developer)"
+                className="w-full text-center font-heading font-bold text-sm sm:text-base text-slate-600 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none transition-colors"
               />
             </div>
 
-            <span className="text-slate-300 select-none">|</span>
+            {/* Contact Bar Inline Inputs */}
+            <div id="field-contact-links" className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-slate-600 pt-1">
+              <div id="field-contact-email" className="flex items-center gap-1">
+                <input
+                  type="email"
+                  value={resume.contact?.email || ""}
+                  onChange={(e) => updateContact("email", e.target.value)}
+                  placeholder="name@email.com"
+                  className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none text-center font-medium w-36 sm:w-44 text-xs"
+                />
+              </div>
 
-            <div id="field-contact-github" className="flex items-center gap-1">
-              <input
-                type="text"
-                value={resume.contact?.github || ""}
-                onChange={(e) => updateContact("github", e.target.value)}
-                placeholder="github.com/you"
-                className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none text-center font-medium w-28 sm:w-36 text-xs"
-              />
+              <span className="text-slate-300 select-none">|</span>
+
+              <div id="field-contact-phone" className="flex items-center gap-1">
+                <input
+                  type="tel"
+                  value={resume.contact?.phone || ""}
+                  onChange={(e) => updateContact("phone", e.target.value)}
+                  placeholder="+91 9876543210"
+                  className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none text-center font-medium w-28 text-xs"
+                />
+              </div>
+
+              <span className="text-slate-300 select-none">|</span>
+
+              <div id="field-contact-city" className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={resume.contact?.city || ""}
+                  onChange={(e) => updateContact("city", e.target.value)}
+                  placeholder="City, India"
+                  className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none text-center font-medium w-28 text-xs"
+                />
+              </div>
+
+              <span className="text-slate-300 select-none">|</span>
+
+              <div id="field-contact-linkedin" className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={resume.contact?.linkedin || ""}
+                  onChange={(e) => updateContact("linkedin", e.target.value)}
+                  placeholder="linkedin.com/in/you"
+                  className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none text-center font-medium w-32 sm:w-40 text-xs"
+                />
+              </div>
+
+              <span className="text-slate-300 select-none">|</span>
+
+              <div id="field-contact-github" className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={resume.contact?.github || ""}
+                  onChange={(e) => updateContact("github", e.target.value)}
+                  placeholder="github.com/you"
+                  className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none text-center font-medium w-28 sm:w-36 text-xs"
+                />
+              </div>
+
+              <span className="text-slate-300 select-none">|</span>
+
+              <div id="field-contact-portfolio" className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={resume.contact?.portfolio || ""}
+                  onChange={(e) => updateContact("portfolio", e.target.value)}
+                  placeholder="portfolio.dev"
+                  className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none text-center font-medium w-28 sm:w-36 text-xs"
+                />
+              </div>
             </div>
-          </div>
-        </header>
+          </header>
 
         {/* 1. PROFESSIONAL SUMMARY SECTION */}
         <section id="field-summary" className="mb-6 group/sec relative">
@@ -478,9 +631,12 @@ export default function WordEditor({
                     type="text"
                     value={edu.degree}
                     onChange={(e) => {
-                      const list = [...(resume.education || [])];
-                      list[eIdx].degree = e.target.value;
-                      onUpdate({ ...resume, education: list });
+                      onUpdate({
+                        ...resume,
+                        education: (resume.education || []).map((item, i) =>
+                          i === eIdx ? { ...item, degree: e.target.value } : item
+                        ),
+                      });
                     }}
                     placeholder="Degree (e.g. B.Tech in Computer Science)"
                     className="font-bold text-slate-800 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none flex-1 text-xs sm:text-sm"
@@ -491,9 +647,12 @@ export default function WordEditor({
                       type="text"
                       value={edu.endYear}
                       onChange={(e) => {
-                        const list = [...(resume.education || [])];
-                        list[eIdx].endYear = e.target.value;
-                        onUpdate({ ...resume, education: list });
+                        onUpdate({
+                          ...resume,
+                          education: (resume.education || []).map((item, i) =>
+                            i === eIdx ? { ...item, endYear: e.target.value } : item
+                          ),
+                        });
                       }}
                       placeholder="Graduation Year (2024)"
                       className="font-medium text-slate-600 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none text-right w-24 text-xs"
@@ -514,9 +673,12 @@ export default function WordEditor({
                     type="text"
                     value={edu.institution}
                     onChange={(e) => {
-                      const list = [...(resume.education || [])];
-                      list[eIdx].institution = e.target.value;
-                      onUpdate({ ...resume, education: list });
+                      onUpdate({
+                        ...resume,
+                        education: (resume.education || []).map((item, i) =>
+                          i === eIdx ? { ...item, institution: e.target.value } : item
+                        ),
+                      });
                     }}
                     placeholder="College / Institution Name"
                     className="italic text-slate-600 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none flex-1 text-xs"
@@ -526,9 +688,12 @@ export default function WordEditor({
                     type="text"
                     value={edu.grade}
                     onChange={(e) => {
-                      const list = [...(resume.education || [])];
-                      list[eIdx].grade = e.target.value;
-                      onUpdate({ ...resume, education: list });
+                      onUpdate({
+                        ...resume,
+                        education: (resume.education || []).map((item, i) =>
+                          i === eIdx ? { ...item, grade: e.target.value } : item
+                        ),
+                      });
                     }}
                     placeholder="CGPA: 8.5"
                     className="text-slate-500 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none text-right w-20 text-xs"
@@ -565,9 +730,12 @@ export default function WordEditor({
                   type="text"
                   value={sk.group}
                   onChange={(e) => {
-                    const list = [...(resume.skills || [])];
-                    list[sIdx].group = e.target.value;
-                    onUpdate({ ...resume, skills: list });
+                    onUpdate({
+                      ...resume,
+                      skills: (resume.skills || []).map((item, i) =>
+                        i === sIdx ? { ...item, group: e.target.value } : item
+                      ),
+                    });
                   }}
                   placeholder="Category"
                   className="font-bold text-slate-800 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none w-36"
@@ -577,9 +745,13 @@ export default function WordEditor({
                   type="text"
                   value={(sk.items || []).join(", ")}
                   onChange={(e) => {
-                    const list = [...(resume.skills || [])];
-                    list[sIdx].items = e.target.value.split(",").map((i) => i.trim()).filter(Boolean);
-                    onUpdate({ ...resume, skills: list });
+                    const parsed = e.target.value.split(",").map((i) => i.trim()).filter(Boolean);
+                    onUpdate({
+                      ...resume,
+                      skills: (resume.skills || []).map((item, i) =>
+                        i === sIdx ? { ...item, items: parsed } : item
+                      ),
+                    });
                   }}
                   placeholder="TypeScript, React, Node.js (comma separated)"
                   className="flex-1 text-slate-700 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none"
@@ -626,9 +798,12 @@ export default function WordEditor({
                       type="text"
                       value={proj.name}
                       onChange={(e) => {
-                        const list = [...(resume.projects || [])];
-                        list[pIdx].name = e.target.value;
-                        onUpdate({ ...resume, projects: list });
+                        onUpdate({
+                          ...resume,
+                          projects: (resume.projects || []).map((p, i) =>
+                            i === pIdx ? { ...p, name: e.target.value } : p
+                          ),
+                        });
                       }}
                       placeholder="Project Name"
                       className="font-bold text-slate-800 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none text-xs sm:text-sm flex-1"
@@ -638,9 +813,12 @@ export default function WordEditor({
                       type="text"
                       value={proj.techStack || ""}
                       onChange={(e) => {
-                        const list = [...(resume.projects || [])];
-                        list[pIdx].techStack = e.target.value;
-                        onUpdate({ ...resume, projects: list });
+                        onUpdate({
+                          ...resume,
+                          projects: (resume.projects || []).map((p, i) =>
+                            i === pIdx ? { ...p, techStack: e.target.value } : p
+                          ),
+                        });
                       }}
                       placeholder="[Tech Stack: React, Node.js]"
                       className="text-slate-500 font-medium bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none text-xs w-48 sm:w-64"
@@ -712,9 +890,12 @@ export default function WordEditor({
                       type="text"
                       value={exp.role}
                       onChange={(e) => {
-                        const list = [...(resume.experience || [])];
-                        list[eIdx].role = e.target.value;
-                        onUpdate({ ...resume, experience: list });
+                        onUpdate({
+                          ...resume,
+                          experience: (resume.experience || []).map((item, i) =>
+                            i === eIdx ? { ...item, role: e.target.value } : item
+                          ),
+                        });
                       }}
                       placeholder="Role (e.g. Software Engineer Intern)"
                       className="font-bold text-slate-800 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none text-xs sm:text-sm flex-1"
@@ -724,9 +905,12 @@ export default function WordEditor({
                       type="text"
                       value={exp.company}
                       onChange={(e) => {
-                        const list = [...(resume.experience || [])];
-                        list[eIdx].company = e.target.value;
-                        onUpdate({ ...resume, experience: list });
+                        onUpdate({
+                          ...resume,
+                          experience: (resume.experience || []).map((item, i) =>
+                            i === eIdx ? { ...item, company: e.target.value } : item
+                          ),
+                        });
                       }}
                       placeholder="Company Name"
                       className="text-slate-600 font-semibold bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none text-xs w-36 sm:w-48"
@@ -739,10 +923,14 @@ export default function WordEditor({
                       value={`${exp.startDate || ""} - ${exp.endDate || "Present"}`}
                       onChange={(e) => {
                         const parts = e.target.value.split("-").map((s) => s.trim());
-                        const list = [...(resume.experience || [])];
-                        list[eIdx].startDate = parts[0] || "";
-                        list[eIdx].endDate = parts[1] || "";
-                        onUpdate({ ...resume, experience: list });
+                        onUpdate({
+                          ...resume,
+                          experience: (resume.experience || []).map((item, i) =>
+                            i === eIdx
+                              ? { ...item, startDate: parts[0] || "", endDate: parts[1] || "" }
+                              : item
+                          ),
+                        });
                       }}
                       placeholder="Jan 2024 - Jun 2024"
                       className="text-slate-500 font-medium bg-transparent border-b border-transparent hover:border-slate-300 focus:border-lt-blue outline-none text-right w-36 text-xs"
@@ -783,5 +971,53 @@ export default function WordEditor({
         </section>
       </article>
     </div>
+
+    {/* Non-modal, bottom-left IssuePopover for summary / bullets */}
+    {activePopover && (
+      <IssuePopover
+        key={`${activePopover.path}-${activePopover.checkpoint.id}`}
+        checkpoint={activePopover.checkpoint}
+        currentText={activePopover.text}
+        onApply={(newText) => {
+          handleApplyPopoverFix(activePopover.path, newText);
+          setActivePopover(null);
+        }}
+        onClose={() => setActivePopover(null)}
+        onFocusField={() => {
+          const el = resolveFieldElement(activePopover.path);
+          el?.focus();
+        }}
+      />
+    )}
+
+    {/* Dismissible Hint Card for non-text fields (contact, education, skills) */}
+    {hintCard && (
+      <div
+        role="status"
+        aria-live="polite"
+        className="fixed bottom-6 left-6 z-40 max-w-sm w-full bg-white rounded-xl shadow-2xl border border-slate-200 p-4 animate-in slide-in-from-bottom-2 duration-200"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-lt-blue bg-lt-blue/10 px-2 py-0.5 rounded-full inline-block">
+              Quick Guide
+            </span>
+            <h4 className="text-sm font-bold text-slate-800">{hintCard.checkpoint.title}</h4>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              {hintCard.checkpoint.fixHint || hintCard.checkpoint.message}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setHintCard(null)}
+            className="text-slate-400 hover:text-slate-600 p-1 rounded-md hover:bg-slate-100 transition-colors"
+            aria-label="Dismiss guide"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    )}
+  </>
   );
 }

@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useTransition } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { StructuredResume } from "@/lib/resumeTypes";
 import { scoreResume, ScoringResult, CheckpointResult } from "@/lib/scoring";
 import TopToolbar from "./TopToolbar";
 import WordEditor from "./WordEditor";
 import ChecklistPanel from "./ChecklistPanel";
 import DownloadScreen from "./DownloadScreen";
-import TrackCoach, { triggerMilestoneConfetti } from "@/components/TrackCoach";
+import { triggerMilestoneConfetti } from "@/components/TrackCoach";
 
 export interface ResumeBuilderProps {
   initialResume: StructuredResume;
@@ -49,9 +49,26 @@ export default function ResumeBuilder({
   // History stack for Undo / Redo (15 items)
   const [history, setHistory] = useState<StructuredResume[]>([initialResume]);
   const [historyIndex, setHistoryIndex] = useState<number>(0);
+  const lastEditTimeRef = useRef<number>(0);
 
-  // Deep linking target field for highlight
-  const [activeTargetField, setActiveTargetField] = useState<string>(initialTargetField);
+  // Focus request with nonce to re-trigger focus even on the same field
+  const [focusRequest, setFocusRequest] = useState<{
+    field: string;
+    checkpointId?: string;
+    nonce: number;
+  } | null>(
+    initialTargetField
+      ? { field: initialTargetField, nonce: 1 }
+      : null
+  );
+
+  const requestFocus = (field: string, checkpointId?: string) => {
+    setFocusRequest({
+      field,
+      checkpointId,
+      nonce: Date.now(),
+    });
+  };
 
   // Mobile checklist drawer state
   const [checklistOpenMobile, setChecklistOpenMobile] = useState(false);
@@ -65,7 +82,8 @@ export default function ResumeBuilder({
   );
 
   const initialScore = initialScoreProp ?? scoring.totalScore;
-  const [previousScore, setPreviousScore] = useState(initialScore);
+  const lastScoreRef = useRef(initialScore);
+  const lastRedRef = useRef(scoring.redIssuesCount);
   const [pointsPopped, setPointsPopped] = useState<number | null>(null);
 
   // Autosave status
@@ -75,6 +93,33 @@ export default function ResumeBuilder({
 
   // Milestones tracking to prevent duplicate confetti
   const reachedMilestonesRef = useRef<Set<number>>(new Set());
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  // Failing checkpoints (must-fix first, then highest points)
+  const failingCheckpoints = useMemo(() => {
+    return (scoring.checkpoints || [])
+      .filter((c) => c.status === "fail" || c.status === "warn")
+      .sort((a, b) => {
+        if (a.status === "fail" && b.status !== "fail") return -1;
+        if (b.status === "fail" && a.status !== "fail") return 1;
+        return b.points - a.points;
+      });
+  }, [scoring.checkpoints]);
+
+  const nextFixCursorRef = useRef(0);
+
+  const nextFix = failingCheckpoints.length > 0
+    ? failingCheckpoints[nextFixCursorRef.current % failingCheckpoints.length]
+    : undefined;
+
+  const handleNextFix = () => {
+    if (failingCheckpoints.length === 0) return;
+    const currentIdx = nextFixCursorRef.current % failingCheckpoints.length;
+    const targetCp = failingCheckpoints[currentIdx];
+    nextFixCursorRef.current = (currentIdx + 1) % failingCheckpoints.length;
+    requestFocus(targetCp.targetField, targetCp.id);
+  };
 
   // Debounced Scoring (150ms)
   useEffect(() => {
@@ -88,36 +133,38 @@ export default function ResumeBuilder({
 
       setScoring(newScoring);
 
-      const diff = newScoring.totalScore - previousScore;
+      const diff = newScoring.totalScore - lastScoreRef.current;
       if (diff > 0) {
         setPointsPopped(diff);
         setTimeout(() => setPointsPopped(null), 2500);
 
-        // Milestone trigger: crossing 50, 70, 85
+        // Milestone triggers: crossing 50, 70, 85
         [50, 70, 85].forEach((m) => {
-          if (newScoring.totalScore >= m && previousScore < m && !reachedMilestonesRef.current.has(m)) {
+          if (newScoring.totalScore >= m && lastScoreRef.current < m && !reachedMilestonesRef.current.has(m)) {
             reachedMilestonesRef.current.add(m);
             triggerMilestoneConfetti();
           }
         });
 
-        // Milestone: all red items fixed
-        if (newScoring.redIssuesCount === 0 && scoring.redIssuesCount > 0 && !reachedMilestonesRef.current.has(999)) {
+        // Milestone: all must-fix red items eliminated
+        if (newScoring.redIssuesCount === 0 && lastRedRef.current > 0 && !reachedMilestonesRef.current.has(999)) {
           reachedMilestonesRef.current.add(999);
           triggerMilestoneConfetti();
         }
       }
 
-      setPreviousScore(newScoring.totalScore);
-      if (onChange) {
-        onChange(resume, newScoring.totalScore);
+      lastScoreRef.current = newScoring.totalScore;
+      lastRedRef.current = newScoring.redIssuesCount;
+
+      if (onChangeRef.current) {
+        onChangeRef.current(resume, newScoring.totalScore);
       }
     }, 150);
 
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
-  }, [resume, leadInfo]);
+  }, [resume, leadInfo?.experienceLevel, leadInfo?.targetRole]);
 
   // Debounced Autosave (1.5s)
   useEffect(() => {
@@ -172,13 +219,26 @@ export default function ResumeBuilder({
 
   const handleUpdateResume = (newResume: StructuredResume) => {
     setResume(newResume);
+    const now = Date.now();
+    const isFastTyping = now - lastEditTimeRef.current < 800;
+    const isAtEnd = historyIndex === history.length - 1;
+    lastEditTimeRef.current = now;
 
-    // Push snapshot to history stack
-    const newHistory = history.slice(0, historyIndex + 1);
-    if (newHistory.length >= 15) newHistory.shift();
-    newHistory.push(newResume);
-    setHistory(newHistory);
-    setHistoryIndex(newHistory.length - 1);
+    if (isAtEnd && isFastTyping && history.length > 0) {
+      setHistory((prev) => {
+        const next = [...prev];
+        next[next.length - 1] = newResume;
+        return next;
+      });
+    } else {
+      const sliced = history.slice(0, historyIndex + 1);
+      if (sliced.length >= 15) {
+        sliced.shift();
+      }
+      sliced.push(newResume);
+      setHistory(sliced);
+      setHistoryIndex(sliced.length - 1);
+    }
   };
 
   const handleUndo = () => {
@@ -198,7 +258,7 @@ export default function ResumeBuilder({
   };
 
   const handleSelectCheckpoint = (cp: CheckpointResult) => {
-    setActiveTargetField(cp.targetField);
+    requestFocus(cp.targetField, cp.id);
     if (checklistOpenMobile) setChecklistOpenMobile(false);
   };
 
@@ -243,12 +303,12 @@ export default function ResumeBuilder({
               fontSize={fontSize}
               zoom={zoom}
               checkpoints={scoring.checkpoints}
-              activeTargetField={activeTargetField}
+              focusRequest={focusRequest}
               onUpdate={handleUpdateResume}
             />
           </main>
 
-          {/* Right Checklist & Review Sidebar */}
+          {/* Right Checklist & Review Sidebar with Shortlist Readiness Coach */}
           <ChecklistPanel
             categories={scoring.categories}
             checkpoints={scoring.checkpoints}
@@ -262,20 +322,10 @@ export default function ResumeBuilder({
             onSelectCheckpoint={handleSelectCheckpoint}
             isOpenMobile={checklistOpenMobile}
             onCloseMobile={() => setChecklistOpenMobile(false)}
+            nextFix={nextFix ? { checkpoint: nextFix } : null}
+            onNextFix={handleNextFix}
+            pointsPopped={pointsPopped}
           />
-
-          {/* Floating Discreet Track Mascot in corner (never covers page) */}
-          <div className="fixed bottom-4 left-4 z-30 max-w-[240px] pointer-events-auto hidden md:block">
-            <TrackCoach
-              score={scoring.totalScore}
-              message={
-                scoring.redIssuesCount > 0
-                  ? `${scoring.redIssuesCount} must-fix items remain. Knock them out to boost your score!`
-                  : "Great progress! Your resume looks sharp and recruiter-ready."
-              }
-              pointsPopped={pointsPopped}
-            />
-          </div>
         </div>
       ) : (
         /* Final Step: Download PDF Screen */
@@ -291,7 +341,7 @@ export default function ResumeBuilder({
           onBackToEditor={() => setViewMode("editor")}
           onFixRemaining={(field) => {
             setViewMode("editor");
-            setActiveTargetField(field);
+            requestFocus(field);
           }}
         />
       )}

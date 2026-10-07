@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { CheckpointResult, CategoryScore } from "@/lib/scoring";
 import { StructuredResume } from "@/lib/resumeTypes";
+import TrackCoach from "@/components/TrackCoach";
 
 interface ChecklistPanelProps {
   categories: CategoryScore[];
@@ -32,6 +33,11 @@ interface ChecklistPanelProps {
   onSelectCheckpoint: (cp: CheckpointResult) => void;
   isOpenMobile: boolean;
   onCloseMobile: () => void;
+  nextFix?: {
+    checkpoint: CheckpointResult;
+  } | null;
+  onNextFix?: () => void;
+  pointsPopped?: number | null;
 }
 
 export default function ChecklistPanel({
@@ -47,6 +53,9 @@ export default function ChecklistPanel({
   onSelectCheckpoint,
   isOpenMobile,
   onCloseMobile,
+  nextFix,
+  onNextFix,
+  pointsPopped,
 }: ChecklistPanelProps) {
   const [activeTab, setActiveTab] = useState<"checklist" | "review">("checklist");
   const [reviewMode, setReviewMode] = useState<"recruiter" | "ats" | "keywords">("recruiter");
@@ -168,21 +177,17 @@ export default function ChecklistPanel({
           </div>
         </div>
 
-        {/* Status banner */}
-        <div className="px-4 py-2.5 bg-slate-100/60 border-b border-slate-200/70 flex items-center justify-between text-xs">
-          <div className="flex items-center gap-3">
-            <span className="inline-flex items-center gap-1 text-rose-700 font-bold">
-              <span className="w-2 h-2 rounded-full bg-rose-500" />
-              {redCount} must-fix
-            </span>
-            <span className="inline-flex items-center gap-1 text-amber-700 font-bold">
-              <span className="w-2 h-2 rounded-full bg-amber-500" />
-              {amberCount} to improve
-            </span>
-          </div>
-          <span className="text-slate-500 font-medium text-[11px]">
-            Started: {initialScore} pts
-          </span>
+        {/* Gamification Shortlist Readiness Strip */}
+        <div className="p-3.5 bg-slate-50/70 border-b border-slate-200/80">
+          <TrackCoach
+            score={totalScore}
+            initialScore={initialScore}
+            redCount={redCount}
+            amberCount={amberCount}
+            pointsPopped={pointsPopped}
+            nextFix={nextFix}
+            onNextFix={onNextFix}
+          />
         </div>
 
         {/* Panel Content Body */}

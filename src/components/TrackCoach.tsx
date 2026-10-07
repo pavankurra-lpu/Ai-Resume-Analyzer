@@ -1,17 +1,20 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import confetti from "canvas-confetti";
-import { Sparkles, Volume2, VolumeX } from "lucide-react";
-
-export type CoachMood = "thinking" | "happy" | "celebrating";
+import { CheckCircle2, ArrowRight } from "lucide-react";
+import { CheckpointResult } from "@/lib/scoring";
 
 export interface TrackCoachProps {
   score: number;
-  message?: string;
-  mood?: CoachMood;
+  initialScore: number;
+  redCount: number;
+  amberCount: number;
   pointsPopped?: number | null;
-  milestoneTrigger?: string | null;
+  nextFix?: {
+    checkpoint: CheckpointResult;
+  } | null;
+  onNextFix?: () => void;
 }
 
 export function triggerMilestoneConfetti() {
@@ -41,126 +44,132 @@ export function triggerMilestoneConfetti() {
 
 export default function TrackCoach({
   score,
-  message,
-  mood = "happy",
+  initialScore,
+  redCount,
+  amberCount,
   pointsPopped,
-  milestoneTrigger,
+  nextFix,
+  onNextFix,
 }: TrackCoachProps) {
-  const [soundEnabled, setSoundEnabled] = useState(false);
-
-  useEffect(() => {
-    if (milestoneTrigger) {
-      triggerMilestoneConfetti();
-    }
-  }, [milestoneTrigger]);
-
-  const readinessLevel =
+  const levelInfo =
     score < 50
-      ? { label: "Starter", color: "bg-rose-500", text: "text-rose-700", bg: "bg-rose-50", border: "border-rose-200" }
+      ? {
+          label: "Starter",
+          chip: "bg-rose-100 text-rose-800 border-rose-200",
+          bar: "bg-rose-500",
+          ptsToNext: `${50 - score} pts to Rising`,
+        }
       : score < 70
-      ? { label: "Rising", color: "bg-amber-500", text: "text-amber-800", bg: "bg-amber-50", border: "border-amber-200" }
+      ? {
+          label: "Rising",
+          chip: "bg-amber-100 text-amber-800 border-amber-200",
+          bar: "bg-amber-500",
+          ptsToNext: `${70 - score} pts to Almost there`,
+        }
       : score < 85
-      ? { label: "Almost there", color: "bg-teal-500", text: "text-teal-800", bg: "bg-teal-50", border: "border-teal-200" }
-      : { label: "Shortlist-ready", color: "bg-emerald-500", text: "text-emerald-800", bg: "bg-emerald-50", border: "border-emerald-200" };
+      ? {
+          label: "Almost there",
+          chip: "bg-teal-100 text-teal-800 border-teal-200",
+          bar: "bg-teal-500",
+          ptsToNext: `${85 - score} pts to Shortlist-ready`,
+        }
+      : {
+          label: "Shortlist-ready",
+          chip: "bg-emerald-100 text-emerald-800 border-emerald-200",
+          bar: "bg-emerald-500",
+          ptsToNext: "Shortlist-ready",
+        };
+
+  const scoreDiff = score - initialScore;
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-sm space-y-3 relative overflow-hidden">
-      {/* Pop animation for points */}
-      {pointsPopped && pointsPopped > 0 && (
-        <div className="absolute top-2 right-3 animate-bounce bg-emerald-100 text-emerald-800 font-extrabold text-xs px-2.5 py-1 rounded-full border border-emerald-300 shadow-xs">
-          +{pointsPopped} pts! 🎯
+    <div className="space-y-2.5">
+      {/* Top Header: Label + Level Chip */}
+      <div className="flex items-center justify-between">
+        <span className="font-heading font-extrabold text-xs text-slate-700 tracking-tight">
+          Shortlist readiness
+        </span>
+        <span
+          className={`px-2 py-0.5 rounded-full border text-[10px] font-extrabold ${levelInfo.chip}`}
+        >
+          {levelInfo.label}
+        </span>
+      </div>
+
+      {/* Progress Bar with Thin Ticks at 50/70/85 */}
+      <div className="relative w-full h-2 bg-slate-200/80 rounded-full overflow-hidden">
+        {/* Tick marks */}
+        <div
+          className="absolute top-0 bottom-0 left-[50%] w-[1.5px] bg-white/90 z-10 pointer-events-none"
+          title="Rising (50)"
+        />
+        <div
+          className="absolute top-0 bottom-0 left-[70%] w-[1.5px] bg-white/90 z-10 pointer-events-none"
+          title="Almost there (70)"
+        />
+        <div
+          className="absolute top-0 bottom-0 left-[85%] w-[1.5px] bg-white/90 z-10 pointer-events-none"
+          title="Shortlist-ready (85)"
+        />
+
+        {/* Fill */}
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${levelInfo.bar}`}
+          style={{ width: `${Math.min(100, Math.max(0, score))}%` }}
+        />
+      </div>
+
+      {/* Text Row: Score on left, pts to next on right */}
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-medium text-slate-600 text-[11px]">
+          <strong className="text-slate-900 font-bold">{score}/100</strong> ·{" "}
+          {scoreDiff >= 0 ? `+${scoreDiff}` : scoreDiff} since start
+          {pointsPopped && pointsPopped > 0 && (
+            <span className="ml-1.5 inline-block text-emerald-600 font-extrabold animate-bounce text-[11px]">
+              +{pointsPopped}!
+            </span>
+          )}
+        </span>
+        <span className="text-slate-500 text-[11px] font-medium">
+          {levelInfo.ptsToNext}
+        </span>
+      </div>
+
+      {/* Next Fix Button / Completed Box */}
+      {nextFix ? (
+        <button
+          type="button"
+          onClick={onNextFix}
+          className="w-full text-left p-2.5 rounded-xl border border-slate-200/90 hover:border-lt-blue bg-white hover:bg-slate-50 transition-all shadow-2xs group flex items-center justify-between gap-2"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 text-[10.5px] mb-0.5">
+              <span className="font-extrabold text-lt-blue uppercase tracking-wide">
+                Next fix
+              </span>
+              <span className="text-slate-400">•</span>
+              <span className="text-slate-500">
+                <span className="text-rose-600 font-bold">{redCount} must-fix</span>,{" "}
+                <span className="text-amber-600 font-bold">{amberCount} to improve</span>
+              </span>
+            </div>
+            <div className="text-xs font-bold text-slate-800 truncate group-hover:text-lt-blue transition-colors">
+              {nextFix.checkpoint.title}
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-extrabold bg-amber-100 text-amber-800 border border-amber-200">
+              +{nextFix.checkpoint.points} pts
+            </span>
+            <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-lt-blue group-hover:translate-x-0.5 transition-all" />
+          </div>
+        </button>
+      ) : (
+        <div className="w-full p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-center gap-2 text-xs font-bold">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+          <span>All checks passed. Ready to download.</span>
         </div>
       )}
-
-      {/* Top bar: Coach Mascot + Score readiness */}
-      <div className="flex items-center gap-3">
-        {/* Track SVG Avatar */}
-        <div className="relative w-11 h-11 rounded-full bg-amber-100 border-2 border-lt-yellow flex items-center justify-center flex-shrink-0 shadow-2xs">
-          <svg viewBox="0 0 100 100" className="w-8 h-8">
-            {/* Graduation Cap in Brand Blue */}
-            <path
-              d="M50 20 L88 38 L50 56 L12 38 Z"
-              fill="#2B3A92"
-            />
-            {/* Cap bottom skullcap */}
-            <path
-              d="M28 46 L28 62 C28 72 72 72 72 62 L72 46"
-              fill="#1E2A6B"
-            />
-            {/* Gold Tassel */}
-            <path
-              d="M78 40 L86 58 C86 64 82 68 78 68"
-              fill="none"
-              stroke="#FBDD05"
-              strokeWidth="4"
-              strokeLinecap="round"
-            />
-            {/* Mascot Eyes depending on mood */}
-            {mood === "celebrating" ? (
-              <>
-                <path d="M40 50 Q45 44 50 50" fill="none" stroke="#FFFFFF" strokeWidth="2.5" strokeLinecap="round" />
-                <path d="M54 50 Q59 44 64 50" fill="none" stroke="#FFFFFF" strokeWidth="2.5" strokeLinecap="round" />
-              </>
-            ) : mood === "thinking" ? (
-              <>
-                <circle cx="44" cy="50" r="2.5" fill="#FFFFFF" />
-                <circle cx="60" cy="48" r="2.5" fill="#FFFFFF" />
-              </>
-            ) : (
-              <>
-                <circle cx="44" cy="50" r="2.5" fill="#FFFFFF" />
-                <circle cx="60" cy="50" r="2.5" fill="#FFFFFF" />
-              </>
-            )}
-          </svg>
-          {mood === "celebrating" && (
-            <Sparkles className="w-4 h-4 text-amber-500 absolute -top-1 -right-1 animate-spin" />
-          )}
-        </div>
-
-        {/* Coach Speech */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between">
-            <span className="font-heading font-extrabold text-xs text-lt-blue-dark">
-              Track <span className="font-normal text-slate-400">• AI Coach</span>
-            </span>
-            <button
-              type="button"
-              onClick={() => setSoundEnabled(!soundEnabled)}
-              className="text-slate-400 hover:text-slate-600 p-0.5"
-              title={soundEnabled ? "Mute milestone chimes" : "Sound off (click to test)"}
-            >
-              {soundEnabled ? <Volume2 className="w-3.5 h-3.5 text-lt-blue" /> : <VolumeX className="w-3.5 h-3.5" />}
-            </button>
-          </div>
-          <p className="text-xs text-slate-700 leading-snug mt-0.5 line-clamp-2 font-medium">
-            {message ||
-              (score >= 85
-                ? "Your resume is in the Shortlist-ready zone! Preview and send it."
-                : score >= 70
-                ? "Almost there! Just a couple more high-impact metric fixes."
-                : score >= 50
-                ? "Nice progress! Keep converting passive lines to strong action verbs."
-                : "Let's fix your top points step by step. You've got this!")}
-          </p>
-        </div>
-      </div>
-
-      {/* Shortlist Readiness Meter */}
-      <div className="pt-1 space-y-1.5">
-        <div className="flex items-center justify-between text-[11px] font-bold">
-          <span className="text-slate-600">Shortlist Readiness:</span>
-          <span className={`px-2 py-0.5 rounded-full border text-[10px] ${readinessLevel.bg} ${readinessLevel.text} ${readinessLevel.border}`}>
-            {readinessLevel.label} ({score}/100)
-          </span>
-        </div>
-        <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-700 ${readinessLevel.color}`}
-            style={{ width: `${Math.min(100, Math.max(8, score))}%` }}
-          />
-        </div>
-      </div>
     </div>
   );
 }
