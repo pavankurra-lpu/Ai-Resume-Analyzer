@@ -1,0 +1,77 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Lead {
+  id               String      @id @default(cuid())
+  name             String?
+  phone            String?
+  email            String?
+  collegeOrCompany String?
+  experienceLevel  String      @default("Fresher") // "Fresher" | "0-2 yrs" | "2-5 yrs" | "5+ yrs"
+  targetRole       String?
+  jobDescription   String?
+  consent          Boolean     @default(true)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  reports          Report[]
+  resumes          Resume[]
+
+  @@index([email])
+  @@index([createdAt])
+}
+
+model Report {
+  id                   String      @id @default(cuid())
+  leadId               String
+  overallScore         Int
+  grade                String      // "Needs Work" | "Average" | "Good" | "Excellent"
+  summary              String
+  categoriesJson       String      // Serialized JSON array of category results
+  topQuickWinsJson     String      // Serialized JSON array of top quick wins
+  jdMatchJson          String?     // Serialized JSON object for JD match details (null if no JD)
+  atsChecksJson        String      // Serialized JSON array of ATS checks
+  suggestedCoursesJson String      // Serialized JSON array of recommended courses
+  rawTextPreview       String?     // Safe snippet preview
+  rawText              String?     // Full extracted raw resume text for guided editor
+  isDemo               Boolean     @default(false)
+  createdAt            DateTime    @default(now())
+  lead                 Lead        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  resumes              Resume[]    @relation("ReportResumes")
+
+  @@index([leadId])
+  @@index([createdAt])
+}
+
+model Resume {
+  id                  String          @id @default(cuid())
+  leadId              String
+  baseReportId        String?
+  contentJson         String          // Serialized JSON of structured resume
+  templateId          String          @default("modern") // "modern" | "classic"
+  explanationLanguage String          @default("en") // "en" | "hi" | "te"
+  status              String          @default("Draft") // "Draft" | "Completed"
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  lead                Lead            @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  baseReport          Report?         @relation("ReportResumes", fields: [baseReportId], references: [id], onDelete: SetNull)
+  versions            ResumeVersion[]
+
+  @@index([leadId])
+  @@index([baseReportId])
+}
+
+model ResumeVersion {
+  id          String   @id @default(cuid())
+  resumeId    String
+  contentJson String
+  createdAt   DateTime @default(now())
+  resume      Resume   @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@index([resumeId])
+}
