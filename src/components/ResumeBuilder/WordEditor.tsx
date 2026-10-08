@@ -621,18 +621,23 @@ export default function WordEditor({
                       <button
                         type="button"
                         onClick={() => {
+                          const skillsStr = (resume.skills || []).flatMap((s) => s.items || []).filter(Boolean).slice(0, 3).join(", ") || "html, Css";
+                          const defaultDraft = `Dedicated ${resume.headline || "Software Engineer"} skilled in ${skillsStr}. Focused on writing maintainable, clean code and delivering robust project solutions.`;
                           const summaryCp = checkpoints.find((c) => c.id.startsWith("summary")) || {
                             id: "summary_present",
                             title: "Professional Summary",
                             points: 4,
                             targetField: "summary",
-                            status: resume.summary?.trim() ? "pass" : "fail",
+                            status: "pass",
                           };
+                          if (!resume.summary?.trim()) {
+                            updateSummary(defaultDraft);
+                          }
                           onOpenFixPanel?.(summaryCp as any, "summary");
                         }}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-lt-blue/10 to-indigo-100 text-lt-blue hover:bg-lt-blue hover:text-white transition-all text-[11px] font-bold border border-lt-blue/20"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-lt-blue/10 to-indigo-100 text-lt-blue hover:bg-lt-blue hover:text-white transition-all text-xs font-bold border border-lt-blue/20 shadow-2xs"
                       >
-                        <Sparkles className="w-3 h-3 text-amber-500" />
+                        <Sparkles className="w-3.5 h-3.5 text-amber-500" />
                         <span>{resume.summary?.trim() ? "Improve with AI" : "Generate with AI"}</span>
                       </button>
                     </div>

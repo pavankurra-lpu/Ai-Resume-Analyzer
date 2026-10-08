@@ -222,7 +222,11 @@ export default function FixPanel({
   const [aiAltIndex, setAiAltIndex] = useState(0);
   const [aiNotice, setAiNotice] = useState<string | null>(null);
 
-  const handleImproveWithAi = async (textToImprove: string, type: "bullet" | "summary") => {
+  const handleImproveWithAi = async (
+    textToImprove: string,
+    type: "bullet" | "summary",
+    autoApply: boolean = false
+  ) => {
     setIsAiLoading(true);
     setAiNotice(null);
     try {
@@ -251,6 +255,15 @@ export default function FixPanel({
         if (data.notice) {
           setAiNotice(data.notice);
         }
+
+        const shouldApply = autoApply || !textToImprove.trim();
+        if (shouldApply && data.alternatives[0]?.text) {
+          if (type === "summary") {
+            handleSaveSummary(data.alternatives[0].text);
+          } else {
+            handleSaveBullet(data.alternatives[0].text);
+          }
+        }
       } else {
         setAiNotice("No alternative found. Try refining your wording.");
       }
@@ -259,9 +272,10 @@ export default function FixPanel({
       const candidateSkills = (resume.skills || []).flatMap((s) => s.items || []).filter(Boolean);
       if (type === "summary") {
         const topSkills = candidateSkills.slice(0, 3).join(", ") || "core web frameworks";
+        const fallbackText = `Dedicated ${targetRole} skilled in ${topSkills}. Focused on writing maintainable, clean code and delivering robust project solutions.`;
         setAiAlternatives([
           {
-            text: `Dedicated ${targetRole} skilled in ${topSkills}. Focused on writing maintainable, clean code and delivering robust project solutions.`,
+            text: fallbackText,
             why: "Directly aligns summary with target role and verified skills.",
           },
           {
@@ -270,10 +284,14 @@ export default function FixPanel({
           },
         ]);
         setAiAltIndex(0);
+        if (autoApply || !textToImprove.trim()) {
+          handleSaveSummary(fallbackText);
+        }
       } else {
+        const fallbackText = `Built and deployed responsive features using ${candidateSkills[0] || "modern frameworks"} following clean architectural patterns.`;
         setAiAlternatives([
           {
-            text: `Built and deployed responsive features using ${candidateSkills[0] || "modern frameworks"} following clean architectural patterns.`,
+            text: fallbackText,
             why: "Begins with an active verb showcasing direct ownership.",
           },
           {
@@ -282,6 +300,9 @@ export default function FixPanel({
           },
         ]);
         setAiAltIndex(0);
+        if (autoApply || !textToImprove.trim()) {
+          handleSaveBullet(fallbackText);
+        }
       }
     } finally {
       setIsAiLoading(false);
@@ -902,13 +923,13 @@ export default function FixPanel({
               <button
                 type="button"
                 disabled={isAiLoading}
-                onClick={() => handleImproveWithAi(summaryDraft, "summary")}
-                className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-gradient-to-r from-lt-blue to-indigo-600 hover:from-lt-blue-dark hover:to-indigo-700 text-white font-extrabold text-xs shadow-xs transition-all disabled:opacity-50"
+                onClick={() => handleImproveWithAi(summaryDraft, "summary", true)}
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-gradient-to-r from-lt-blue to-indigo-600 hover:from-lt-blue-dark hover:to-indigo-700 text-white font-extrabold text-xs shadow-md transition-all disabled:opacity-50"
               >
                 {isAiLoading ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Analyzing your words...</span>
+                    <span>Generating & Applying Summary...</span>
                   </>
                 ) : (
                   <>
@@ -928,8 +949,9 @@ export default function FixPanel({
               {aiAlternatives.length > 0 && (
                 <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-2 animate-in fade-in">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-lt-blue bg-lt-blue/10 px-2 py-0.5 rounded-full">
-                      Based on your own words
+                    <span className="text-[10px] font-bold text-lt-blue bg-lt-blue/10 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-amber-500" />
+                      <span>{summaryDraft === aiAlternatives[aiAltIndex]?.text ? "Applied to resume" : "AI Suggested Draft"}</span>
                     </span>
                     <span className="text-[10px] font-mono text-slate-500">
                       Idea {aiAltIndex + 1} of {aiAlternatives.length}
@@ -949,19 +971,23 @@ export default function FixPanel({
                       type="button"
                       onClick={() => {
                         handleSaveSummary(aiAlternatives[aiAltIndex].text);
-                        setAiAlternatives([]);
                       }}
-                      className="flex-1 py-1.5 rounded-lg bg-lt-blue text-white hover:bg-lt-blue-dark text-xs font-bold transition-all shadow-2xs"
+                      className="flex-1 py-1.5 rounded-lg bg-lt-blue text-white hover:bg-lt-blue-dark text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-1"
                     >
-                      Use this
+                      <Check className="w-3 h-3 text-emerald-300 stroke-[3]" />
+                      <span>{summaryDraft === aiAlternatives[aiAltIndex]?.text ? "Applied" : "Use this"}</span>
                     </button>
                     {aiAlternatives.length > 1 && (
                       <button
                         type="button"
-                        onClick={() => setAiAltIndex((prev) => (prev + 1) % aiAlternatives.length)}
-                        className="py-1.5 px-3 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-xs font-bold text-slate-700"
+                        onClick={() => {
+                          const nextIdx = (aiAltIndex + 1) % aiAlternatives.length;
+                          setAiAltIndex(nextIdx);
+                          handleSaveSummary(aiAlternatives[nextIdx].text);
+                        }}
+                        className="py-1.5 px-3 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-xs font-bold text-slate-700 shadow-2xs"
                       >
-                        Another idea
+                        Try another idea
                       </button>
                     )}
                   </div>
@@ -1256,13 +1282,13 @@ export default function FixPanel({
               <button
                 type="button"
                 disabled={isAiLoading}
-                onClick={() => handleImproveWithAi(currentBulletText, "bullet")}
-                className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-gradient-to-r from-lt-blue to-indigo-600 hover:from-lt-blue-dark hover:to-indigo-700 text-white font-extrabold text-xs shadow-xs transition-all disabled:opacity-50"
+                onClick={() => handleImproveWithAi(currentBulletText, "bullet", true)}
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-gradient-to-r from-lt-blue to-indigo-600 hover:from-lt-blue-dark hover:to-indigo-700 text-white font-extrabold text-xs shadow-md transition-all disabled:opacity-50"
               >
                 {isAiLoading ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Analyzing your words...</span>
+                    <span>Generating & Applying Bullet...</span>
                   </>
                 ) : (
                   <>
@@ -1282,8 +1308,9 @@ export default function FixPanel({
               {aiAlternatives.length > 0 && (
                 <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-2 animate-in fade-in">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-lt-blue bg-lt-blue/10 px-2 py-0.5 rounded-full">
-                      Based on your own words
+                    <span className="text-[10px] font-bold text-lt-blue bg-lt-blue/10 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-amber-500" />
+                      <span>{currentBulletText === aiAlternatives[aiAltIndex]?.text ? "Applied to resume" : "AI Suggested Draft"}</span>
                     </span>
                     <span className="text-[10px] font-mono text-slate-500">
                       Idea {aiAltIndex + 1} of {aiAlternatives.length}
@@ -1303,19 +1330,23 @@ export default function FixPanel({
                       type="button"
                       onClick={() => {
                         handleSaveBullet(aiAlternatives[aiAltIndex].text);
-                        setAiAlternatives([]);
                       }}
-                      className="flex-1 py-1.5 rounded-lg bg-lt-blue text-white hover:bg-lt-blue-dark text-xs font-bold transition-all shadow-2xs"
+                      className="flex-1 py-1.5 rounded-lg bg-lt-blue text-white hover:bg-lt-blue-dark text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-1"
                     >
-                      Use this
+                      <Check className="w-3 h-3 text-emerald-300 stroke-[3]" />
+                      <span>{currentBulletText === aiAlternatives[aiAltIndex]?.text ? "Applied" : "Use this"}</span>
                     </button>
                     {aiAlternatives.length > 1 && (
                       <button
                         type="button"
-                        onClick={() => setAiAltIndex((prev) => (prev + 1) % aiAlternatives.length)}
-                        className="py-1.5 px-3 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-xs font-bold text-slate-700"
+                        onClick={() => {
+                          const nextIdx = (aiAltIndex + 1) % aiAlternatives.length;
+                          setAiAltIndex(nextIdx);
+                          handleSaveBullet(aiAlternatives[nextIdx].text);
+                        }}
+                        className="py-1.5 px-3 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-xs font-bold text-slate-700 shadow-2xs"
                       >
-                        Another idea
+                        Try another idea
                       </button>
                     )}
                   </div>
