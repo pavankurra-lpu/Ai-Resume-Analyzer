@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   CheckCircle2,
   AlertCircle,
@@ -216,11 +216,20 @@ export default function FixPanel({
     onUpdateResume({ ...resume, summary: newSummary });
   };
 
-  // AI Suggestion State
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiAlternatives, setAiAlternatives] = useState<Array<{ text: string; why: string }>>([]);
   const [aiAltIndex, setAiAltIndex] = useState(0);
   const [aiNotice, setAiNotice] = useState<string | null>(null);
+
+  const panelBodyRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to top and reset suggestions when moving to a new checkpoint
+  useEffect(() => {
+    panelBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    setAiAlternatives([]);
+    setAiAltIndex(0);
+    setAiNotice(null);
+  }, [checkpoint?.id]);
 
   const handleImproveWithAi = async (
     textToImprove: string,
@@ -617,7 +626,7 @@ export default function FixPanel({
       </div>
 
       {/* 3. SCROLLABLE HELPER BODY (Check-Specific) */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div ref={panelBodyRef} className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* Why Recruiters Care Card */}
         {checkpoint?.whyRecruitersCare && (
           <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200/80 text-[11px] text-slate-600 space-y-1">

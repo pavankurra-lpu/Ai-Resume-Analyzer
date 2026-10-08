@@ -117,17 +117,24 @@ export default function ResumeBuilder({
       });
   }, [scoring.checkpoints]);
 
-  const nextFixCursorRef = useRef(0);
+  const liveActiveCheckpoint = useMemo(() => {
+    if (!activeCheckpoint) return null;
+    return (scoring.checkpoints || []).find((c) => c.id === activeCheckpoint.id) || activeCheckpoint;
+  }, [scoring.checkpoints, activeCheckpoint]);
 
-  const nextFix = failingCheckpoints.length > 0
-    ? failingCheckpoints[nextFixCursorRef.current % failingCheckpoints.length]
-    : undefined;
+  const nextFix = failingCheckpoints.length > 0 ? failingCheckpoints[0] : undefined;
 
   const handleNextFix = () => {
-    if (failingCheckpoints.length === 0) return;
-    const currentIdx = nextFixCursorRef.current % failingCheckpoints.length;
-    const targetCp = failingCheckpoints[currentIdx];
-    nextFixCursorRef.current = (currentIdx + 1) % failingCheckpoints.length;
+    if (failingCheckpoints.length === 0) {
+      setSidebarMode("checklist");
+      return;
+    }
+    const currentId = activeCheckpoint?.id;
+    const currentIdx = currentId
+      ? failingCheckpoints.findIndex((c) => c.id === currentId)
+      : -1;
+    const nextIdx = currentIdx >= 0 ? (currentIdx + 1) % failingCheckpoints.length : 0;
+    const targetCp = failingCheckpoints[nextIdx];
     setActiveCheckpoint(targetCp);
     setActiveFixField(targetCp.targetField);
     setSidebarMode("fix");
@@ -135,9 +142,20 @@ export default function ResumeBuilder({
   };
 
   const handleSkipFix = () => {
-    if (failingCheckpoints.length === 0) return;
-    nextFixCursorRef.current = (nextFixCursorRef.current + 1) % failingCheckpoints.length;
-    handleNextFix();
+    if (failingCheckpoints.length === 0) {
+      setSidebarMode("checklist");
+      return;
+    }
+    const currentId = activeCheckpoint?.id;
+    const currentIdx = currentId
+      ? failingCheckpoints.findIndex((c) => c.id === currentId)
+      : -1;
+    const nextIdx = currentIdx >= 0 ? (currentIdx + 1) % failingCheckpoints.length : 0;
+    const targetCp = failingCheckpoints[nextIdx];
+    setActiveCheckpoint(targetCp);
+    setActiveFixField(targetCp.targetField);
+    setSidebarMode("fix");
+    requestFocus(targetCp.targetField, targetCp.id);
   };
 
   // Debounced Scoring (150ms)
@@ -297,7 +315,6 @@ export default function ResumeBuilder({
     setActiveCheckpoint(cp);
     setActiveFixField(targetField);
     setSidebarMode("fix");
-    requestFocus(targetField, cp.id);
   };
 
   // Approximate word count for Page 1 fit indicator
@@ -363,9 +380,9 @@ export default function ResumeBuilder({
           </main>
 
           {/* DOCKED SIDEBAR: Switch between Overview Checklist and Line-by-Line Fix Panel */}
-          {sidebarMode === "fix" && activeCheckpoint ? (
+          {sidebarMode === "fix" && liveActiveCheckpoint ? (
             <FixPanel
-              checkpoint={activeCheckpoint}
+              checkpoint={liveActiveCheckpoint}
               targetField={activeFixField}
               resume={resume}
               totalScore={scoring.totalScore}

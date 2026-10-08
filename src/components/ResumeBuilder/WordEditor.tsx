@@ -85,18 +85,7 @@ export default function WordEditor({
         input.focus();
       }
     }
-
-    const currentCheckpoints = checkpointsRef.current;
-    const matchingCp = focusRequest.checkpointId
-      ? currentCheckpoints.find((c) => c.id === focusRequest.checkpointId)
-      : currentCheckpoints.find(
-          (c) => c.targetField === targetPath && c.status !== "pass"
-        );
-
-    if (matchingCp && onOpenFixPanel) {
-      onOpenFixPanel(matchingCp, targetPath);
-    }
-  }, [focusRequest, onOpenFixPanel]);
+  }, [focusRequest]);
 
   // Styling tokens based on template
   const isModern = templateId === "modern";
