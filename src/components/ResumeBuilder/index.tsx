@@ -6,6 +6,7 @@ import { scoreResume, ScoringResult, CheckpointResult } from "@/lib/scoring";
 import TopToolbar from "./TopToolbar";
 import WordEditor from "./WordEditor";
 import ChecklistPanel from "./ChecklistPanel";
+import FixPanel from "./FixPanel";
 import DownloadScreen from "./DownloadScreen";
 import { triggerMilestoneConfetti } from "@/components/TrackCoach";
 
@@ -70,8 +71,17 @@ export default function ResumeBuilder({
     });
   };
 
-  // Mobile checklist drawer state
-  const [checklistOpenMobile, setChecklistOpenMobile] = useState(false);
+  // Sidebar mode: "checklist" overview or "fix" docked helper
+  const [sidebarMode, setSidebarMode] = useState<"checklist" | "fix">("checklist");
+  const [activeCheckpoint, setActiveCheckpoint] = useState<CheckpointResult | null>(null);
+  const [activeFixField, setActiveFixField] = useState<string>(initialTargetField || "");
+
+  // Gamification Streak Tracking (within 3 minutes)
+  const [streakCount, setStreakCount] = useState<number>(0);
+  const lastFixTimeRef = useRef<number>(0);
+
+  // Mobile drawer state
+  const [sidebarOpenMobile, setSidebarOpenMobile] = useState(false);
 
   // Live Scoring state
   const [scoring, setScoring] = useState<ScoringResult>(() =>
@@ -118,7 +128,16 @@ export default function ResumeBuilder({
     const currentIdx = nextFixCursorRef.current % failingCheckpoints.length;
     const targetCp = failingCheckpoints[currentIdx];
     nextFixCursorRef.current = (currentIdx + 1) % failingCheckpoints.length;
+    setActiveCheckpoint(targetCp);
+    setActiveFixField(targetCp.targetField);
+    setSidebarMode("fix");
     requestFocus(targetCp.targetField, targetCp.id);
+  };
+
+  const handleSkipFix = () => {
+    if (failingCheckpoints.length === 0) return;
+    nextFixCursorRef.current = (nextFixCursorRef.current + 1) % failingCheckpoints.length;
+    handleNextFix();
   };
 
   // Debounced Scoring (150ms)
@@ -137,6 +156,15 @@ export default function ResumeBuilder({
       if (diff > 0) {
         setPointsPopped(diff);
         setTimeout(() => setPointsPopped(null), 2500);
+
+        // Streak tracking (if within 3 minutes)
+        const now = Date.now();
+        if (now - lastFixTimeRef.current < 3 * 60 * 1000) {
+          setStreakCount((s) => s + 1);
+        } else {
+          setStreakCount(1);
+        }
+        lastFixTimeRef.current = now;
 
         // Milestone triggers: crossing 50, 70, 85
         [50, 70, 85].forEach((m) => {
@@ -258,14 +286,39 @@ export default function ResumeBuilder({
   };
 
   const handleSelectCheckpoint = (cp: CheckpointResult) => {
+    setActiveCheckpoint(cp);
+    setActiveFixField(cp.targetField);
+    setSidebarMode("fix");
     requestFocus(cp.targetField, cp.id);
-    if (checklistOpenMobile) setChecklistOpenMobile(false);
+    if (sidebarOpenMobile) setSidebarOpenMobile(false);
   };
+
+  const handleOpenFixPanel = (cp: CheckpointResult, targetField: string) => {
+    setActiveCheckpoint(cp);
+    setActiveFixField(targetField);
+    setSidebarMode("fix");
+    requestFocus(targetField, cp.id);
+  };
+
+  // Approximate word count for Page 1 fit indicator
+  const totalWords = useMemo(() => {
+    const content = [
+      resume.summary || "",
+      ...(resume.education || []).map((e) => `${e.degree} ${e.institution}`),
+      ...(resume.skills || []).flatMap((s) => s.items || []),
+      ...(resume.projects || []).map((p) => `${p.name} ${(p.bullets || []).join(" ")}`),
+      ...(resume.experience || []).map((e) => `${e.role} ${(e.bullets || []).join(" ")}`),
+    ].join(" ");
+    return content.split(/\s+/).filter(Boolean).length;
+  }, [resume]);
+
+  const isOverflowing = totalWords > 650;
 
   return (
     <div className="min-h-screen bg-slate-100/90 flex flex-col relative text-slate-800">
       {/* Top Word Ribbon Toolbar */}
       <TopToolbar
+        reportId={reportId}
         canUndo={historyIndex > 0}
         canRedo={historyIndex < history.length - 1}
         onUndo={handleUndo}
@@ -277,7 +330,7 @@ export default function ResumeBuilder({
         zoom={zoom}
         onZoomChange={setZoom}
         pageCount={1}
-        isOverflowing={false}
+        isOverflowing={isOverflowing}
         totalScore={scoring.totalScore}
         initialScore={initialScore}
         scoreDiff={scoring.totalScore - initialScore}
@@ -289,7 +342,7 @@ export default function ResumeBuilder({
             setViewMode("download");
           }
         }}
-        onToggleChecklistMobile={() => setChecklistOpenMobile(true)}
+        onToggleChecklistMobile={() => setSidebarOpenMobile(true)}
       />
 
       {/* Main Workspace Area */}
@@ -305,27 +358,48 @@ export default function ResumeBuilder({
               checkpoints={scoring.checkpoints}
               focusRequest={focusRequest}
               onUpdate={handleUpdateResume}
+              onOpenFixPanel={handleOpenFixPanel}
             />
           </main>
 
-          {/* Right Checklist & Review Sidebar with Shortlist Readiness Coach */}
-          <ChecklistPanel
-            categories={scoring.categories}
-            checkpoints={scoring.checkpoints}
-            totalScore={scoring.totalScore}
-            initialScore={initialScore}
-            redCount={scoring.redIssuesCount}
-            amberCount={scoring.amberIssuesCount}
-            resume={resume}
-            targetRole={leadInfo?.targetRole}
-            jobDescription={leadInfo?.jobDescription}
-            onSelectCheckpoint={handleSelectCheckpoint}
-            isOpenMobile={checklistOpenMobile}
-            onCloseMobile={() => setChecklistOpenMobile(false)}
-            nextFix={nextFix ? { checkpoint: nextFix } : null}
-            onNextFix={handleNextFix}
-            pointsPopped={pointsPopped}
-          />
+          {/* DOCKED SIDEBAR: Switch between Overview Checklist and Line-by-Line Fix Panel */}
+          {sidebarMode === "fix" && activeCheckpoint ? (
+            <FixPanel
+              checkpoint={activeCheckpoint}
+              targetField={activeFixField}
+              resume={resume}
+              totalScore={scoring.totalScore}
+              scoreDiff={scoring.totalScore - initialScore}
+              pointsPopped={pointsPopped}
+              streakCount={streakCount}
+              failingCheckpoints={failingCheckpoints}
+              onUpdateResume={handleUpdateResume}
+              onNextFix={handleNextFix}
+              onSkipFix={handleSkipFix}
+              onClose={() => setSidebarMode("checklist")}
+              isOpenMobile={sidebarOpenMobile}
+              targetRole={leadInfo?.targetRole}
+              reportId={reportId || resumeId}
+            />
+          ) : (
+            <ChecklistPanel
+              categories={scoring.categories}
+              checkpoints={scoring.checkpoints}
+              totalScore={scoring.totalScore}
+              initialScore={initialScore}
+              redCount={scoring.redIssuesCount}
+              amberCount={scoring.amberIssuesCount}
+              resume={resume}
+              targetRole={leadInfo?.targetRole}
+              jobDescription={leadInfo?.jobDescription}
+              onSelectCheckpoint={handleSelectCheckpoint}
+              isOpenMobile={sidebarOpenMobile}
+              onCloseMobile={() => setSidebarOpenMobile(false)}
+              nextFix={nextFix ? { checkpoint: nextFix } : null}
+              onNextFix={handleNextFix}
+              pointsPopped={pointsPopped}
+            />
+          )}
         </div>
       ) : (
         /* Final Step: Download PDF Screen */

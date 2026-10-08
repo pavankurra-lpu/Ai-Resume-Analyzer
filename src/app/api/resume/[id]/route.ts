@@ -44,7 +44,7 @@ export async function GET(
       templateId: resume.templateId,
       explanationLanguage: resume.explanationLanguage,
       status: resume.status,
-      versions: resume.versions.map((v) => ({
+      versions: resume.versions.map((v: { id: string; createdAt: Date | string }) => ({
         id: v.id,
         createdAt: v.createdAt,
       })),

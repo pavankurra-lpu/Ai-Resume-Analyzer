@@ -54,17 +54,17 @@ export interface ScoringOptions {
 }
 
 export const ACTION_VERBS = new Set([
-  "accelerated", "achieved", "analyzed", "architected", "automated", "built",
-  "centralized", "collaborated", "constructed", "created", "debugged", "decreased",
-  "delivered", "deployed", "designed", "developed", "devised", "documented",
+  "accelerated", "achieved", "added", "analyzed", "architected", "automated", "authored", "built",
+  "centralized", "collaborated", "constructed", "contributed", "created", "debugged", "decreased",
+  "delivered", "deployed", "designed", "developed", "devised", "diagnosed", "documented",
   "drove", "eliminated", "engineered", "enhanced", "established", "executed",
-  "expanded", "expedited", "formulated", "generated", "implemented", "improved",
+  "expanded", "expedited", "fixed", "formulated", "generated", "implemented", "improved",
   "increased", "initiated", "innovated", "installed", "integrated", "launched",
   "lead", "led", "managed", "maximized", "mentored", "minimized", "modernized",
-  "optimized", "orchestrated", "overhauled", "performed", "pioneered", "planned",
+  "optimized", "orchestrated", "organized", "overhauled", "performed", "pioneered", "planned",
   "programmed", "reduced", "refactored", "resolved", "restructured", "revamped",
   "scaled", "secured", "simplified", "spearheaded", "standardized", "streamlined",
-  "strengthened", "surpassed", "tested", "trained", "transformed", "upgraded"
+  "strengthened", "surpassed", "tested", "trained", "transformed", "upgraded", "wrote"
 ]);
 
 export const CLICHES = [
@@ -106,12 +106,19 @@ export function evaluateBulletPoint(text: string) {
   const firstWord = words[0]?.toLowerCase().replace(/[^a-z]/g, "") || "";
   const hasVerb = ACTION_VERBS.has(firstWord);
 
+  // Exclude 4-digit years like 2020-2029 and class grades like 10th, 12th
+  const textWithoutYears = trimmed
+    .replace(/\b(19|20)\d{2}\b/g, "")
+    .replace(/\b(10th|12th)\b/gi, "");
+
   const hasMetric =
-    /\b\d+(\.\d+)?%/.test(trimmed) || // percentages
-    /[₹$€£]\s*\d+/.test(trimmed) || // currency
-    /\b\d+([kKmMbB]|\+)?\b/.test(trimmed) || // numbers like 500+, 10k
-    /\b(reduced|increased|improved|decreased|cut|boosted|saved|scaled)\s+by\s+\d+/i.test(trimmed) ||
-    /\b\d+x\b/i.test(trimmed); // multipliers like 2x, 5x
+    /\b\d+(\.\d+)?%/.test(textWithoutYears) || // percentages
+    /[₹$€£]\s*\d+/.test(textWithoutYears) || // currency
+    /\b\d+([kKmMbB]|\+)\b/.test(textWithoutYears) || // numbers with scale like 500+, 10k
+    /\b\d{2,}\b/.test(textWithoutYears) || // raw numbers 10+ (excluding years)
+    /\b(reduced|increased|improved|decreased|cut|boosted|saved|scaled)\s+by\s+\d+/i.test(textWithoutYears) ||
+    /\b\d+x\b/i.test(textWithoutYears) || // multipliers like 2x, 5x
+    /\b(so that users can|so that students can|enabling the team to|enabling users to|resulting in|leading to|improved user experience|cutting production bugs)\b/i.test(trimmed);
 
   return {
     hasVerb,
@@ -611,6 +618,16 @@ export function scoreResume(
   const metricsPass = totalBulletCount > 0 && metricRatio >= 0.35;
   const lengthPass = totalBulletCount > 0 && lengthRatio >= 0.6;
 
+  const verbsEarned = totalBulletCount > 0
+    ? (verbsPass ? 8 : Math.round((verbBullets / totalBulletCount) * 8 * 10) / 10)
+    : 0;
+  const metricsEarned = totalBulletCount > 0
+    ? (metricsPass ? 8 : Math.round((metricBullets / totalBulletCount) * 8 * 10) / 10)
+    : 0;
+  const lengthEarned = totalBulletCount > 0
+    ? (lengthPass ? 4 : Math.round((optimalLengthBullets / totalBulletCount) * 4 * 10) / 10)
+    : 0;
+
   // Identify first weak bullet for direct targeting
   const weakVerbBullet = evaluatedBullets.find((b) => !b.hasVerb);
   const weakMetricBullet = evaluatedBullets.find((b) => !b.hasMetric);
@@ -620,8 +637,8 @@ export function scoreResume(
     id: "bullets_action_verbs",
     category: "Bullet quality",
     points: 8,
-    earned: verbsPass ? 8 : 0,
-    status: verbsPass ? "pass" : "fail",
+    earned: verbsEarned,
+    status: verbsPass ? "pass" : verbBullets > 0 ? "warn" : "fail",
     severity: "must-fix",
     title: "Strong Action Verbs (60%+ of bullets)",
     message: verbsPass
@@ -638,8 +655,8 @@ export function scoreResume(
     id: "bullets_metrics",
     category: "Bullet quality",
     points: 8,
-    earned: metricsPass ? 8 : 0,
-    status: metricsPass ? "pass" : "warn",
+    earned: metricsEarned,
+    status: metricsPass ? "pass" : metricBullets > 0 ? "warn" : "fail",
     severity: "improve",
     title: "Measurable Results & Metrics (35%+ of bullets)",
     message: metricsPass
@@ -656,8 +673,8 @@ export function scoreResume(
     id: "bullets_length",
     category: "Bullet quality",
     points: 4,
-    earned: lengthPass ? 4 : 0,
-    status: lengthPass ? "pass" : "warn",
+    earned: lengthEarned,
+    status: lengthPass ? "pass" : optimalLengthBullets > 0 ? "warn" : "fail",
     severity: "improve",
     title: "Concise Bullet Length (8-35 words)",
     message: lengthPass

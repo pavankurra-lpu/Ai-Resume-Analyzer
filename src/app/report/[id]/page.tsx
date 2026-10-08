@@ -200,15 +200,29 @@ export default async function ReportPage({ params }: ReportPageProps) {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
               {/* Left Score Ring */}
               <div className="lg:col-span-4 flex flex-col items-center justify-center p-4">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+                  ATS Readiness Score
+                </span>
                 <ScoreRing targetScore={report.overallScore} size={190} strokeWidth={15} />
 
-                {/* Grade Badge */}
-                <div className="mt-4">
-                  <span
-                    className={`inline-block px-4 py-1.5 rounded-full text-xs sm:text-sm font-extrabold uppercase tracking-wider border shadow-2xs ${scoreTheme.bg} ${scoreTheme.border} ${scoreTheme.text}`}
+                {/* Grade Badge & Honest Labelling */}
+                <div className="mt-4 text-center space-y-1.5">
+                  <div>
+                    <span
+                      className={`inline-block px-4 py-1.5 rounded-full text-xs sm:text-sm font-extrabold uppercase tracking-wider border shadow-2xs ${scoreTheme.bg} ${scoreTheme.border} ${scoreTheme.text}`}
+                    >
+                      Grade: {report.grade}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 max-w-xs leading-normal">
+                    Our standard ATS Readiness Score. Real ATS systems differ, so this is a reliable guide, not a guarantee.
+                  </p>
+                  <Link
+                    href="/how-scoring-works"
+                    className="inline-block text-[11px] font-bold text-lt-blue hover:underline"
                   >
-                    Grade: {report.grade}
-                  </span>
+                    How scoring works &rarr;
+                  </Link>
                 </div>
               </div>
 

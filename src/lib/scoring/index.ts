@@ -1,15 +1,19 @@
 import { StructuredResume } from "../resumeTypes";
 import {
-  scoreResume,
+  scoreResume as legacyScoreResume,
   CheckpointResult,
   ScoringResult,
   ScoringOptions,
   evaluateBulletPoint,
 } from "./scoringEngine";
+import { computeAtsScore, AtsScoringResult } from "../ats";
 import { AnalysisResult, CategoryResult, IssueResult } from "../schema";
 import { LEARNERS_TRACK_COURSES } from "@/config/courses";
 
 export * from "./scoringEngine";
+export { computeAtsScore } from "../ats";
+
+export const scoreResume = legacyScoreResume;
 
 /**
  * Converts pure deterministic scoring results into the full AnalysisResult structure
@@ -17,13 +21,24 @@ export * from "./scoringEngine";
  * the report, and the live interactive builder.
  */
 export function convertScoringToReport(
-  scoring: ScoringResult,
+  scoring: ScoringResult | AtsScoringResult,
   resume: StructuredResume,
   options?: {
     targetRole?: string;
     jobDescription?: string;
   }
 ): AnalysisResult {
+  const scoreNum = "totalScore" in scoring ? scoring.totalScore : scoring.score;
+  const gradeStr: "Needs Work" | "Average" | "Good" | "Excellent" =
+    scoring.grade === "ATS-ready"
+      ? "Excellent"
+      : scoring.grade === "Good"
+      ? "Good"
+      : scoring.grade === "Average"
+      ? "Average"
+      : "Needs Work";
+  const summaryStr = scoring.summary;
+
   const categories: CategoryResult[] = scoring.categories.map((cat) => {
     const strengths: string[] = [];
     const issues: IssueResult[] = [];
@@ -43,7 +58,7 @@ export function convertScoringToReport(
     });
 
     if (strengths.length === 0) {
-      strengths.push(`Addressed basic ${cat.name.toLowerCase()} requirements.`);
+      strengths.push(`Addressed core ${cat.name.toLowerCase()} standards.`);
     }
 
     return {
@@ -62,34 +77,34 @@ export function convertScoringToReport(
 
   const topQuickWins = failingCheckpoints.slice(0, 5).map((c) => `+${c.points} pts: ${c.fixHint}`);
   if (topQuickWins.length === 0) {
-    topQuickWins.push("Great work! Your resume passes all core checks.");
+    topQuickWins.push("Great work! Your resume passes all core ATS checks.");
   }
 
   // ATS Checks
   const atsChecks = [
     {
       check: "Single-Column Linear Hierarchy",
-      passed: true,
+      passed: scoring.checkpoints.find((c) => c.id === "format_single_column")?.status !== "fail",
       note: "Standard heading hierarchy easily parsed by workday, greenhouse, and taleo systems.",
     },
     {
-      check: "Direct Contact Information",
-      passed: scoring.checkpoints.find((c) => c.id === "contact_email")?.status === "pass",
-      note: "Email and telephone numbers located at the top.",
+      check: "Direct Plain-Text Contact Information",
+      passed: scoring.checkpoints.find((c) => c.id === "format_contact_in_body")?.status !== "fail",
+      note: "Email and telephone numbers located at the top of the body text.",
     },
     {
       check: "Action Verb Openers",
-      passed: scoring.checkpoints.find((c) => c.id === "bullets_action_verbs")?.status === "pass",
+      passed: scoring.checkpoints.find((c) => c.id === "bullets_action_verbs")?.status !== "fail",
       note: "Bullet points initiate with active past-tense engineering and leadership verbs.",
     },
     {
       check: "Zero Sensitive Personal Disclosures",
-      passed: scoring.checkpoints.find((c) => c.id === "clean_sensitive_data")?.status === "pass",
+      passed: scoring.checkpoints.find((c) => c.id === "clean_sensitive_data")?.status !== "fail",
       note: "Excluded marital status, date of birth, and identity document numbers.",
     },
     {
       check: "No Unfilled Bracket Placeholders",
-      passed: scoring.checkpoints.find((c) => c.id === "clean_placeholders")?.status === "pass",
+      passed: scoring.checkpoints.find((c) => c.id === "clean_placeholders")?.status !== "fail",
       note: "Zero template brackets or placeholder indicators present.",
     },
   ];
@@ -135,9 +150,9 @@ export function convertScoringToReport(
   }));
 
   return {
-    overall_score: scoring.totalScore,
-    grade: scoring.grade,
-    summary: scoring.summary,
+    overall_score: scoreNum,
+    grade: gradeStr,
+    summary: summaryStr,
     categories,
     top_quick_wins: topQuickWins,
     jd_match: jdMatch,

@@ -1,10 +1,18 @@
+"use client";
+
 import React from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { usePathname } from "next/navigation";
 import { Phone, Mail, Shield, Sparkles, ExternalLink, GraduationCap } from "lucide-react";
 
 export default function Footer() {
+  const pathname = usePathname();
   const counsellorPhone = process.env.COUNSELLOR_PHONE || "+919876543210";
+
+  if (pathname?.startsWith("/editor")) {
+    return null;
+  }
 
   return (
     <footer className="bg-lt-blue-dark text-white pt-16 pb-12 border-t-4 border-lt-yellow">

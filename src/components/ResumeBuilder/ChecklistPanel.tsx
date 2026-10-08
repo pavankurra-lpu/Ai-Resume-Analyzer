@@ -196,8 +196,8 @@ export default function ChecklistPanel({
             /* CHECKLIST TAB */
             <div className="space-y-3">
               {categories.map((cat) => {
-                const isExpanded = expandedCategories[cat.name] ?? false;
                 const failingCount = cat.checkpoints.filter((c) => c.status !== "pass").length;
+                const isExpanded = expandedCategories[cat.name] ?? true;
 
                 return (
                   <div
@@ -247,6 +247,7 @@ export default function ChecklistPanel({
                           return (
                             <div
                               key={cp.id}
+                              data-checkpoint-id={cp.id}
                               onClick={() => onSelectCheckpoint(cp)}
                               className={`p-2 rounded-lg cursor-pointer transition-all hover:bg-slate-50 flex items-start justify-between gap-2 text-xs group ${
                                 !isPass

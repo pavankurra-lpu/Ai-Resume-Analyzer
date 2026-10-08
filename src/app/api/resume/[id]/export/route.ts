@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
+import { dataStore } from "@/lib/data";
 import { generatePdf } from "@/lib/exportResume";
+import { runAtsParseTest } from "@/lib/atsParseTest";
 import { StructuredResume } from "@/lib/resumeTypes";
 
 export async function GET(
@@ -11,17 +12,20 @@ export async function GET(
     const { id } = params;
     const { searchParams } = new URL(req.url);
     const templateId = searchParams.get("templateId") || "modern";
+    const isTestRequest = searchParams.get("test") === "true";
 
-    const resumeRecord = await prisma.resume.findUnique({
-      where: { id },
-      include: { lead: true },
-    });
-
+    const resumeRecord = await dataStore.getResume(id);
     if (!resumeRecord) {
       return NextResponse.json({ error: "Resume not found" }, { status: 404 });
     }
 
     const content: StructuredResume = JSON.parse(resumeRecord.contentJson);
+
+    // If testOnly=true, run real ATS Parse Test and return JSON verification
+    if (isTestRequest) {
+      const testResult = await runAtsParseTest(content, templateId);
+      return NextResponse.json(testResult);
+    }
 
     const nameParts = (content.contact.fullName || resumeRecord.lead?.name || "Candidate")
       .trim()

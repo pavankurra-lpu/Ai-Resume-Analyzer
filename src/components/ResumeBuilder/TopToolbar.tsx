@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 interface TopToolbarProps {
+  reportId?: string;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
@@ -36,6 +37,7 @@ interface TopToolbarProps {
 }
 
 export default function TopToolbar({
+  reportId,
   canUndo,
   canRedo,
   onUndo,
@@ -60,6 +62,17 @@ export default function TopToolbar({
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
         {/* Left: Document Controls (Undo/Redo, Template, Font) */}
         <div className="flex items-center gap-1.5 sm:gap-3 flex-wrap">
+          {/* Back to Report */}
+          {reportId && (
+            <a
+              href={`/report/${reportId}`}
+              className="inline-flex items-center gap-1 text-xs font-bold text-slate-600 hover:text-lt-blue px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors mr-1"
+            >
+              <span>&larr;</span>
+              <span className="hidden sm:inline">Report</span>
+            </a>
+          )}
+
           {/* Undo / Redo */}
           <div className="flex items-center bg-slate-100 rounded-lg p-0.5">
             <button
