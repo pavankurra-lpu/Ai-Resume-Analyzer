@@ -276,17 +276,25 @@ export default function ChecklistPanel({
                                 </div>
                               </div>
 
-                              <span
-                                className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full flex-shrink-0 font-mono ${
-                                  isPass
-                                    ? "bg-slate-100 text-slate-500"
-                                    : isRed
-                                    ? "bg-rose-100 text-rose-800 border border-rose-200 group-hover:bg-rose-200"
-                                    : "bg-amber-100 text-amber-800 border border-amber-200 group-hover:bg-amber-200"
-                                }`}
-                              >
-                                {isPass ? `${cp.points} pts` : `+${cp.points} pts`}
-                              </span>
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
+                                {!isPass && (cp.id.startsWith("summary") || cp.id.startsWith("bullets") || cp.id.startsWith("projects") || cp.id.startsWith("skills")) && (
+                                  <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 group-hover:bg-lt-blue group-hover:text-white transition-colors flex items-center gap-0.5">
+                                    <Sparkles className="w-2.5 h-2.5 text-amber-500 group-hover:text-amber-300" />
+                                    <span>AI Fix</span>
+                                  </span>
+                                )}
+                                <span
+                                  className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full flex-shrink-0 font-mono ${
+                                    isPass
+                                      ? "bg-slate-100 text-slate-500"
+                                      : isRed
+                                      ? "bg-rose-100 text-rose-800 border border-rose-200 group-hover:bg-rose-200"
+                                      : "bg-amber-100 text-amber-800 border border-amber-200 group-hover:bg-amber-200"
+                                  }`}
+                                >
+                                  {isPass ? `${cp.points} pts` : `+${cp.points} pts`}
+                                </span>
+                              </div>
                             </div>
                           );
                         })}

@@ -24,14 +24,9 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const bullet = (body.bullet as string) || "";
-    const role = (body.role as string) || "";
+    const role = (body.role as string) || "Software Engineer";
 
-    if (!bullet.trim() || bullet.trim().length < 10) {
-      return NextResponse.json(
-        { error: "Please enter a resume bullet point of at least 10 characters." },
-        { status: 400 }
-      );
-    }
+    const cleanInput = bullet.trim();
 
     const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
 
@@ -41,17 +36,16 @@ export async function POST(req: NextRequest) {
 
       const prompt = `
 You are an expert resume editor and technical recruiter for the Indian tech market.
-Improve the following resume bullet point using this strict formula:
+Improve or draft the following resume bullet point using this strict formula:
 [Strong Action Verb] + [What You Did / Technical Complexity] + [Tool / Method / Stack] + [Measurable Result / Impact].
 
-Input Bullet: "${bullet}"
-Target Role: "${role || "Software Engineer"}"
+Input Bullet: "${cleanInput || "None provided yet. Draft a strong bullet point."}"
+Target Role: "${role}"
 
 Rules:
 1. Provide exactly 3 distinctly styled stronger versions (one focused on speed/performance, one on business/user scale, one on engineering quality/architecture).
-2. Do not invent fake facts or numbers. Use placeholders like [X%], [Y hours], or [N users] where the user must supply their actual numbers.
-3. Suggest where to add realistic metrics and explicitly remind them NOT to invent false numbers.
-4. Return ONLY valid JSON adhering strictly to:
+2. Do not invent fake numbers or use bracket placeholders like [X%] or [25%]. Use natural phrasing like "improving system responsiveness" or "scaling to handle multi-user traffic".
+3. Return ONLY valid JSON adhering strictly to:
 {
   "versions": ["string", "string", "string"],
   "metricAdvice": "string"
@@ -83,15 +77,16 @@ Rules:
     }
 
     // High quality built-in fallback / demo mode generator
-    const cleanBullet = bullet.trim().replace(/^[-•*–—]\s*/, "");
+    const cleanBullet = cleanInput ? cleanInput.replace(/^[-•*–—]\s*/, "") : "core application features";
     const roleContext = role ? `for ${role}` : "in production";
+    const featureName = cleanBullet.toLowerCase().replace(/^(worked on|responsible for|helped in|assisted with)\s*/i, "");
 
-    const v1 = `Architected and deployed ${cleanBullet.toLowerCase().replace(/^(worked on|responsible for|helped in|assisted with)\s*/i, "")} using modern design patterns, boosting processing efficiency by [35%] ${roleContext}.`;
-    const v2 = `Engineered end-to-end workflow to execute ${cleanBullet.toLowerCase().replace(/^(worked on|responsible for|helped in|assisted with)\s*/i, "")}, slashing manual turnaround time by [15 hours/week] across [4] cross-functional teams.`;
-    const v3 = `Spearheaded refactoring and automated testing for ${cleanBullet.toLowerCase().replace(/^(worked on|responsible for|helped in|assisted with)\s*/i, "")}, maintaining 99.9% uptime and accelerating feature release cycles by [25%].`;
+    const v1 = `Architected and deployed ${featureName} using modern design patterns, boosting processing efficiency ${roleContext}.`;
+    const v2 = `Engineered end-to-end workflow to execute ${featureName}, streamlining manual turnaround time across cross-functional teams.`;
+    const v3 = `Spearheaded refactoring and automated testing for ${featureName}, maintaining high system uptime and accelerating feature release cycles.`;
 
     const metricAdvice =
-      "Never invent false metrics or exaggerate numbers. Instead, measure realistic indicators: % latency reduction, number of team members unblocked, query speed improvements, number of API endpoints built, or user satisfaction score.";
+      "Measure realistic indicators from your actual project: page load speed, number of team members unblocked, query speed improvements, number of API endpoints built, or user satisfaction.";
 
     return NextResponse.json({
       versions: [v1, v2, v3],

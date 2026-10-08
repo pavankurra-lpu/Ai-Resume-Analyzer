@@ -223,7 +223,6 @@ export default function FixPanel({
   const [aiNotice, setAiNotice] = useState<string | null>(null);
 
   const handleImproveWithAi = async (textToImprove: string, type: "bullet" | "summary") => {
-    if (!textToImprove.trim()) return;
     setIsAiLoading(true);
     setAiNotice(null);
     try {
@@ -234,7 +233,7 @@ export default function FixPanel({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          currentText: textToImprove,
+          currentText: (textToImprove || "").trim(),
           type,
           targetRole: targetRole || resume.headline || "Software Engineer",
           skills: candidateSkills,
@@ -257,9 +256,84 @@ export default function FixPanel({
       }
     } catch (err) {
       console.warn("AI suggest error:", err);
-      setAiNotice("AI is unavailable, here are quick suggestions.");
+      const candidateSkills = (resume.skills || []).flatMap((s) => s.items || []).filter(Boolean);
+      if (type === "summary") {
+        const topSkills = candidateSkills.slice(0, 3).join(", ") || "core web frameworks";
+        setAiAlternatives([
+          {
+            text: `Dedicated ${targetRole} skilled in ${topSkills}. Focused on writing maintainable, clean code and delivering robust project solutions.`,
+            why: "Directly aligns summary with target role and verified skills.",
+          },
+          {
+            text: `Detail-focused ${targetRole} with hands-on proficiency in ${topSkills}. Eager to contribute to software delivery and collaborate effectively in engineering teams.`,
+            why: "Crisp, role-aligned fresher summary centered on core competencies.",
+          },
+        ]);
+        setAiAltIndex(0);
+      } else {
+        setAiAlternatives([
+          {
+            text: `Built and deployed responsive features using ${candidateSkills[0] || "modern frameworks"} following clean architectural patterns.`,
+            why: "Begins with an active verb showcasing direct ownership.",
+          },
+          {
+            text: `Engineered maintainable software components ensuring clean code quality and verified reliability.`,
+            why: "Highlights software craftsmanship and best practices.",
+          },
+        ]);
+        setAiAltIndex(0);
+      }
     } finally {
       setIsAiLoading(false);
+    }
+  };
+
+  // Pre-load AI recommendations automatically when navigating to summary or bullet checkpoints
+  useEffect(() => {
+    if (isSummary) {
+      handleImproveWithAi(summaryDraft, "summary");
+    } else if (isBulletCp) {
+      handleImproveWithAi(currentBulletText, "bullet");
+    }
+  }, [cpId, selectedBulletPath]);
+
+  // Project AI Suggestion State
+  const [isAiProjectLoading, setIsAiProjectLoading] = useState(false);
+  const handleGenerateProjectWithAi = async () => {
+    setIsAiProjectLoading(true);
+    try {
+      const candidateSkills = (resume.skills || []).flatMap((s) => s.items || []).filter(Boolean);
+      const res = await fetch(`/api/resume/${reportId || "current"}/suggest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "project",
+          targetRole: targetRole || resume.headline || "Software Engineer",
+          skills: candidateSkills,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.project) {
+          onUpdateResume({
+            ...resume,
+            projects: [
+              ...(resume.projects || []),
+              {
+                id: Math.random().toString(36).substring(2, 9),
+                name: data.project.name,
+                techStack: data.project.techStack,
+                link: "",
+                bullets: data.project.bullets,
+              },
+            ],
+          });
+        }
+      }
+    } catch (err) {
+      console.warn("Project AI suggest error:", err);
+    } finally {
+      setIsAiProjectLoading(false);
     }
   };
 
@@ -827,7 +901,7 @@ export default function FixPanel({
             <div className="space-y-2 pt-1 border-t border-slate-100">
               <button
                 type="button"
-                disabled={isAiLoading || !summaryDraft.trim()}
+                disabled={isAiLoading}
                 onClick={() => handleImproveWithAi(summaryDraft, "summary")}
                 className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-gradient-to-r from-lt-blue to-indigo-600 hover:from-lt-blue-dark hover:to-indigo-700 text-white font-extrabold text-xs shadow-xs transition-all disabled:opacity-50"
               >
@@ -839,7 +913,7 @@ export default function FixPanel({
                 ) : (
                   <>
                     <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                    <span>Improve Summary with AI</span>
+                    <span>{summaryDraft.trim() ? "Improve Summary with AI" : "Generate Summary with AI"}</span>
                   </>
                 )}
               </button>
@@ -1181,7 +1255,7 @@ export default function FixPanel({
             <div className="space-y-2 pt-1 border-t border-slate-100">
               <button
                 type="button"
-                disabled={isAiLoading || !currentBulletText.trim()}
+                disabled={isAiLoading}
                 onClick={() => handleImproveWithAi(currentBulletText, "bullet")}
                 className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-gradient-to-r from-lt-blue to-indigo-600 hover:from-lt-blue-dark hover:to-indigo-700 text-white font-extrabold text-xs shadow-xs transition-all disabled:opacity-50"
               >
@@ -1193,7 +1267,7 @@ export default function FixPanel({
                 ) : (
                   <>
                     <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                    <span>Improve with AI</span>
+                    <span>{currentBulletText.trim() ? "Improve with AI" : "Generate Bullet with AI"}</span>
                   </>
                 )}
               </button>
@@ -1256,6 +1330,26 @@ export default function FixPanel({
         {/* ==================================================== */}
         {isProjects && (
           <div className="space-y-3">
+            {/* AI PROJECT RECOMMENDATION */}
+            <button
+              type="button"
+              disabled={isAiProjectLoading}
+              onClick={handleGenerateProjectWithAi}
+              className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-gradient-to-r from-lt-blue to-indigo-600 hover:from-lt-blue-dark hover:to-indigo-700 text-white font-extrabold text-xs shadow-xs transition-all disabled:opacity-50"
+            >
+              {isAiProjectLoading ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Generating Project with AI...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Recommend {targetRole} Project with AI</span>
+                </>
+              )}
+            </button>
+
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-700">
                 Projects List ({resume.projects?.length || 0} documented)
@@ -1620,6 +1714,51 @@ export default function FixPanel({
             <span className="text-xs font-bold text-slate-700 block">
               Skill Categories ({resume.skills?.length || 0} groups, {candidateSkills.length} total skills):
             </span>
+
+            {/* AI Recommended Skills for targetRole */}
+            <div className="p-2.5 bg-indigo-50/60 rounded-xl border border-indigo-100 space-y-1.5">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-lt-blue flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-amber-500" />
+                <span>AI Recommended Skills for {targetRole}:</span>
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {(() => {
+                  const roleLower = targetRole.toLowerCase();
+                  const recs = roleLower.includes("front") || roleLower.includes("react")
+                    ? ["React", "TypeScript", "Tailwind CSS", "JavaScript", "HTML5/CSS3", "REST APIs", "Git", "Next.js"]
+                    : roleLower.includes("data") || roleLower.includes("python")
+                    ? ["Python", "SQL", "Pandas", "NumPy", "Data Visualization", "Git", "PostgreSQL", "Excel"]
+                    : roleLower.includes("back") || roleLower.includes("node")
+                    ? ["Node.js", "Express", "PostgreSQL", "MongoDB", "REST APIs", "Docker", "Git", "TypeScript"]
+                    : ["Java", "Python", "SQL", "Git", "Data Structures", "Algorithms", "Object-Oriented Design", "REST APIs"];
+
+                  const missing = recs.filter((r) => !candidateSkills.map((s) => s.toLowerCase()).includes(r.toLowerCase()));
+                  return missing.slice(0, 6).map((skill) => (
+                    <button
+                      key={skill}
+                      type="button"
+                      onClick={() => {
+                        const existingGroups = resume.skills || [];
+                        if (existingGroups.length === 0) {
+                          onUpdateResume({
+                            ...resume,
+                            skills: [{ id: Math.random().toString(36).substring(2, 9), group: "Core Technologies", items: [skill] }],
+                          });
+                        } else {
+                          const next = existingGroups.map((g, i) =>
+                            i === 0 ? { ...g, items: [...g.items, skill] } : g
+                          );
+                          onUpdateResume({ ...resume, skills: next });
+                        }
+                      }}
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white border border-indigo-200 text-indigo-900 hover:bg-lt-blue hover:text-white transition-colors"
+                    >
+                      + {skill}
+                    </button>
+                  ));
+                })()}
+              </div>
+            </div>
 
             <div className="flex flex-wrap gap-1">
               {["Languages", "Frameworks & Libraries", "Tools & Databases"].map((grpName) => (

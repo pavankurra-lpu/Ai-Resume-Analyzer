@@ -422,6 +422,25 @@ export default function WordEditor({
           )}
         </div>
 
+        {/* AI Improve bullet button on hover */}
+        <button
+          type="button"
+          onClick={() => {
+            const cp = matchingCp || checkpoints.find((c) => c.id.startsWith("bullets")) || {
+              id: "bullets_action_verbs",
+              title: "Bullet Quality",
+              points: 8,
+              targetField: path,
+              status: "fail",
+            };
+            onOpenFixPanel?.(cp as any, path);
+          }}
+          title="Improve or generate bullet with AI"
+          className="opacity-0 group-hover/bullet:opacity-100 p-1 text-lt-blue hover:text-indigo-700 hover:bg-lt-blue/10 rounded transition-opacity mt-0.5"
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+        </button>
+
         {/* Delete bullet button on hover */}
         <button
           type="button"
@@ -595,9 +614,28 @@ export default function WordEditor({
               return (
                 <section key="summary" id="field-summary" className="mb-6 group/sec relative">
                   <div className="flex items-center justify-between border-b border-slate-200/90 pb-1 mb-2">
-                    <h3 className={`font-heading font-extrabold text-xs uppercase tracking-wider ${primaryColor}`}>
-                      Professional Summary
-                    </h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className={`font-heading font-extrabold text-xs uppercase tracking-wider ${primaryColor}`}>
+                        Professional Summary
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const summaryCp = checkpoints.find((c) => c.id.startsWith("summary")) || {
+                            id: "summary_present",
+                            title: "Professional Summary",
+                            points: 4,
+                            targetField: "summary",
+                            status: resume.summary?.trim() ? "pass" : "fail",
+                          };
+                          onOpenFixPanel?.(summaryCp as any, "summary");
+                        }}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-lt-blue/10 to-indigo-100 text-lt-blue hover:bg-lt-blue hover:text-white transition-all text-[11px] font-bold border border-lt-blue/20"
+                      >
+                        <Sparkles className="w-3 h-3 text-amber-500" />
+                        <span>{resume.summary?.trim() ? "Improve with AI" : "Generate with AI"}</span>
+                      </button>
+                    </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover/sec:opacity-100 transition-opacity">
                       <button
                         type="button"

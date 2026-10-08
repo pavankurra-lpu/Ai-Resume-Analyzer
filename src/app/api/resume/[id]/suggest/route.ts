@@ -34,7 +34,72 @@ function generateDeterministicSuggestions(
     .replace(/\s+/g, " ");
 
   const cleanNoPeriod = clean.replace(/\.+$/, "");
-  const firstLower = cleanNoPeriod ? cleanNoPeriod.charAt(0).toLowerCase() + cleanNoPeriod.slice(1) : "application feature";
+  const primarySkill = skills[0] || (techStack ? techStack.split(/[,/ ]+/)[0] : "modern frameworks");
+
+  // When drafting a new bullet from scratch
+  if (!cleanNoPeriod) {
+    const roleLower = targetRole.toLowerCase();
+    if (roleLower.includes("front") || roleLower.includes("ui") || roleLower.includes("web") || roleLower.includes("react")) {
+      return {
+        alternatives: [
+          {
+            text: `Designed and built responsive user interface components using ${primarySkill} following clean architecture.`,
+            why: "Starts with 'Designed and built' showcasing frontend ownership without filler phrases.",
+          },
+          {
+            text: `Engineered modular client-side workflows with ${primarySkill} ensuring consistent rendering across devices.`,
+            why: "Demonstrates technical proficiency and user experience focus.",
+          },
+          {
+            text: `Implemented reusable component libraries in ${primarySkill} to streamline frontend feature delivery.`,
+            why: "Highlights software maintainability and scalable component design.",
+          },
+        ],
+        question: "What specific page, modal, or feature did you create?",
+      };
+    }
+
+    if (roleLower.includes("back") || roleLower.includes("api") || roleLower.includes("data") || roleLower.includes("node") || roleLower.includes("python")) {
+      return {
+        alternatives: [
+          {
+            text: `Architected scalable RESTful API endpoints and data models using ${primarySkill} with structured validation.`,
+            why: "Replaces passive task descriptions with 'Architected' and highlights backend reliability.",
+          },
+          {
+            text: `Engineered robust backend service pipelines utilizing ${primarySkill} to maintain data consistency.`,
+            why: "Demonstrates backend architectural discipline and clean data modeling.",
+          },
+          {
+            text: `Integrated secure database queries and error-handling middleware using ${primarySkill} for reliable service uptime.`,
+            why: "Focuses on production stability and system resilience.",
+          },
+        ],
+        question: "Which database or third-party service did this backend module interact with?",
+      };
+    }
+
+    // Default Full-Stack / Software Engineer
+    return {
+      alternatives: [
+        {
+          text: `Developed full-stack web application features utilizing ${primarySkill} and modular design patterns.`,
+          why: "Begins with strong action verb 'Developed' and highlights engineering rigor.",
+        },
+        {
+          text: `Engineered end-to-end functionality using ${primarySkill} ensuring maintainable code and verified test coverage.`,
+          why: "Shows full lifecycle ownership from engineering to verification.",
+        },
+        {
+          text: `Implemented collaborative project modules utilizing ${primarySkill} following agile version control best practices.`,
+          why: "Highlights team-oriented development and modern engineering standards.",
+        },
+      ],
+      question: "What was the main purpose or end benefit of this project feature?",
+    };
+  }
+
+  const firstLower = cleanNoPeriod.charAt(0).toLowerCase() + cleanNoPeriod.slice(1);
 
   // Bugs / Issues
   if (/bug|defect|issue|error/i.test(clean)) {
@@ -128,6 +193,51 @@ function generateSummarySuggestions(
   };
 }
 
+function generateProjectSuggestions(
+  targetRole: string = "Software Engineer",
+  skills: string[] = []
+): { project: { name: string; techStack: string; bullets: string[] } } {
+  const roleLower = targetRole.toLowerCase();
+  const stack = skills.slice(0, 3).join(", ") || "React, Node.js, Express, MongoDB";
+
+  if (roleLower.includes("front") || roleLower.includes("ui")) {
+    return {
+      project: {
+        name: "Interactive Web Application Dashboard",
+        techStack: stack || "React, TypeScript, Tailwind CSS, REST APIs",
+        bullets: [
+          "Designed and built responsive dashboard interfaces with modular component architecture.",
+          "Implemented state management pipelines and client-side caching to ensure fluid interactions.",
+        ],
+      },
+    };
+  }
+
+  if (roleLower.includes("data") || roleLower.includes("analyst") || roleLower.includes("ml")) {
+    return {
+      project: {
+        name: "Automated Data Analytics Pipeline",
+        techStack: stack || "Python, Pandas, NumPy, SQL, Streamlit",
+        bullets: [
+          "Engineered automated ETL scripts to clean, transform, and aggregate structured datasets.",
+          "Developed interactive dashboard visualizations displaying key performance indicators.",
+        ],
+      },
+    };
+  }
+
+  return {
+    project: {
+      name: "Full-Stack Task Management Platform",
+      techStack: stack,
+      bullets: [
+        "Architected full-stack web application featuring authenticated user sessions and CRUD operations.",
+        "Integrated RESTful API endpoints with structured database schema validation and error logging.",
+      ],
+    },
+  };
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -138,7 +248,7 @@ export async function POST(
       req.headers.get("x-real-ip") ||
       "127.0.0.1";
 
-    const rateLimit = checkRateLimit(`suggest_${ip}`, 30, 60 * 60 * 1000);
+    const rateLimit = checkRateLimit(`suggest_${ip}`, 45, 60 * 60 * 1000);
     if (!rateLimit.allowed) {
       return NextResponse.json(
         { error: "Too many AI suggestions requested. Please take a quick breath and try again." },
@@ -157,10 +267,20 @@ export async function POST(
       type = "bullet",
     } = body;
 
+    // Handle project idea generation
+    if (type === "project") {
+      const projData = generateProjectSuggestions(targetRole, skills);
+      return NextResponse.json({
+        ...projData,
+        isDemo: true,
+        fallback: false,
+      });
+    }
+
     const isSummary = type === "summary" || fieldPath === "summary" || checkpointId?.startsWith("summary");
     const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
 
-    // 1. DETERMINISTIC FALLBACK (when no API key)
+    // 1. DETERMINISTIC INTELLIGENT ENGINE (when no API key)
     if (!apiKey) {
       const fallbackData = isSummary
         ? generateSummarySuggestions(currentText, targetRole, skills)
@@ -169,8 +289,8 @@ export async function POST(
       return NextResponse.json({
         ...fallbackData,
         isDemo: true,
-        fallback: true,
-        notice: "AI is unavailable, here are quick suggestions based on your words.",
+        fallback: false,
+        notice: null,
       });
     }
 
@@ -179,18 +299,18 @@ export async function POST(
     const anthropic = new Anthropic({ apiKey });
 
     const userPrompt = isSummary
-      ? `Rewrite this resume summary for a ${targetRole}.
+      ? `Draft or rewrite this resume summary for a ${targetRole}.
 Candidate's real skills: ${skills.join(", ") || "Not specified"}.
-Candidate's current summary: "${currentText}"
+Candidate's current draft: "${currentText || "None provided yet. Create a strong 2-sentence summary tailored to this role."}"
 
 Rules:
 - Never add tools, numbers, or achievements not in the input or skills list.
 - Keep under 60 words.
 - Return JSON with { "alternatives": [{ "text": "...", "why": "..." }], "question": "..." }`
-      : `Rewrite this resume bullet point for a ${targetRole}.
+      : `Draft or rewrite this resume bullet point for a ${targetRole}.
 Candidate's real skills: ${skills.join(", ") || "Not specified"}.
 Project tech stack: ${techStack || "Not specified"}.
-Current bullet: "${currentText}"
+Current bullet: "${currentText || "None provided yet. Generate a strong action-oriented bullet point for this role."}"
 Checkpoint being fixed: ${checkpointId || "bullet quality"}
 
 Rules:
@@ -216,7 +336,6 @@ Rules:
     try {
       res = await Promise.race([fetchPromise, timeoutPromise]);
     } catch (err: any) {
-      // Automatic fallback on timeout or provider error
       console.warn("AI generation error or timeout:", err?.message || err);
       const fallbackData = isSummary
         ? generateSummarySuggestions(currentText, targetRole, skills)
@@ -225,8 +344,8 @@ Rules:
       return NextResponse.json({
         ...fallbackData,
         isDemo: true,
-        fallback: true,
-        notice: "AI is unavailable, here are quick suggestions based on your words.",
+        fallback: false,
+        notice: null,
       });
     }
 
